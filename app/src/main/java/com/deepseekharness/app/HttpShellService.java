@@ -1775,6 +1775,7 @@ public final class HttpShellService {
       String kind = getParam(q, "kind", "delta");
       String text = getParam(q, "text", "");
       String session = getParam(q, "session", "");
+      String title = getParam(q, "title", "");
       String displayText = safeDisplay(text);
       if (!OverlayController.enabled(ctx)) return "DISABLED";
       if (!OverlayController.permitted(ctx)) return "NO_PERMISSION";
@@ -1782,7 +1783,7 @@ public final class HttpShellService {
       if ("reasoning".equals(kind) && !OverlayController.showReasoning(ctx)) {
         return "SKIP_REASONING";
       }
-      OverlayController.push(ctx, session, kind, displayText);
+      OverlayController.push(ctx, session, kind, displayText, safeDisplay(title));
       return OverlayController.showCommand(ctx) ? "OK" : "OK_NO_CMD";
     } catch (Throwable e) {
       return "ERROR: " + safeError(e);

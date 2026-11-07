@@ -162,12 +162,27 @@ function unwrap(raw) {
   return s
 }
 
+/** sessionKey → 该会话的标题（来自 session/title 事件），只用于悬浮条的多任务标识行。 */
+const titles = new Map()
+
+function titleOf(key, session) {
+  try {
+    const known = titles.get(key)
+    if (known) return known
+    const raw = session?.title ?? session?.name ?? ''
+    return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 24)
+  } catch {
+    return ''
+  }
+}
+
 async function send(key, kind, text) {
   const tok = bridgeToken()
   if (!tok) return
   if (Date.now() < cooldownUntil) return
   const url = `${BRIDGE}?kind=${encodeURIComponent(kind)}`
     + `&session=${encodeURIComponent(key)}`
+    + `&title=${encodeURIComponent(titles.get(key) || '')}`
     + `&text=${encodeURIComponent(text || '')}`
   try {
     const res = await fetch(url, {
@@ -232,6 +247,16 @@ export function apply(ctx) {
       const key = sessionKey(session)
       const type = event?.type
       const data = event?.data
+
+      if (type === 'session/title') {
+        const title = String(data?.title || '').replace(/\s+/g, ' ').trim()
+        if (title) titles.set(key, title.slice(0, 24))
+        return
+      }
+      if (!titles.get(key)) {
+        const known = titleOf(key, session)
+        if (known) titles.set(key, known)
+      }
 
       if (type === 'assistant/chunk') {
         const chunk = data?.chunk

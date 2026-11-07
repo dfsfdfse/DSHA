@@ -57,6 +57,8 @@ public final class OverlayController {
   public static final String K_REASONING = "overlay_show_reasoning"; // 显示思考过程
   public static final String K_COMMAND = "overlay_show_command"; // 工具调用带上命令原文
   public static final String K_CONFIRM = "overlay_confirm"; // 危险命令就地批准
+  /** 悬浮条纵向位置（px）。拖动后持久化，下次显示沿用它。 */
+  public static final String K_Y = "overlay_y";
 
   // 默认 3 行：1 行永远只看得到最后半句，流式内容根本读不了 —— 这个功能的用处
   // 就是扫一眼 agent 在说什么，太窄等于没有。
@@ -93,6 +95,9 @@ public final class OverlayController {
    *  于是单开一路也永远带着个 [xx] 前缀（用户报的「最前面莫名其妙一个 [2d]」）。 */
   private static final Map<String, Long> LAST_SEEN = new LinkedHashMap<>();
 
+  /** sessionKey → 任务标题（来自 dsh 的 session/title），只用于多任务标识行。 */
+  private static final Map<String, String> TITLES = new LinkedHashMap<>();
+
   private static final long MULTI_WINDOW_MS = 15_000;
 
   private static final Handler main = new Handler(Looper.getMainLooper());
@@ -101,6 +106,12 @@ public final class OverlayController {
   private static WindowManager wm;
   private static LinearLayout root;
   private static TextView label;
+  /** 多任务时的紧凑标识行（如「2 个任务 · [ab]」），单路时隐藏。 */
+  private static TextView header;
+  private static WindowManager.LayoutParams windowParams;
+  private static float dragStartRawY;
+  private static int dragStartY;
+  private static boolean dragging;
   private static LinearLayout confirmRow;
   private static TextView confirmHint;
   private static Runnable hideTask;
@@ -199,6 +210,12 @@ public final class OverlayController {
    *             · {@code reasoning} 思考过程 · {@code done} 本轮收尾 · {@code clear} 立刻收起
    */
   public static void push(Context ctx, String sessionKey, String kind, String text) {
+    push(ctx, sessionKey, kind, text, "");
+  }
+
+  /** 带任务标题的推送：title 来自 dsh 的 session/title 事件，多任务时显示在标识行。 */
+  public static void push(
+      Context ctx, String sessionKey, String kind, String text, String title) {
     if (ctx == null || !enabled(ctx) || !permitted(ctx)) return;
     // Overlay content is display-only. Keep any credentials in streamed
     // diagnostics out of both the transient buffer and the window.
@@ -207,6 +224,14 @@ public final class OverlayController {
     if ("tool".equals(k)) text = com.deepseekharness.app.util.UiText.toolStatus(text);
     if ("reasoning".equals(k) && !showReasoning(ctx)) return;
     final String key = sessionKey == null || sessionKey.isEmpty() ? "-" : sessionKey;
+    if (title != null && !title.isEmpty()) {
+      synchronized (LOCK) {
+        TITLES.put(key, title.length() > 24 ? title.substring(0, 24) : title);
+        while (TITLES.size() > MAX_SESSIONS) {
+          TITLES.remove(TITLES.keySet().iterator().next());
+        }
+      }
+    }
     // 确认进行中：命令和按钮不能被流式内容顶掉（用户正要点它）
     if (confirming && !"clear".equals(k)) return;
 
@@ -215,6 +240,7 @@ public final class OverlayController {
       if ("clear".equals(k)) {
         BUFFERS.remove(key);
         LAST_SEEN.remove(key);
+        TITLES.remove(key);
         if (key.equals(activeKey)) {
           activeKey = "";
           frames.clear();
@@ -257,6 +283,19 @@ public final class OverlayController {
     String s = key.replaceAll("[^0-9A-Za-z\\u4e00-\\u9fa5]", "");
     if (s.isEmpty()) return "[·]";
     return "[" + s.substring(Math.max(0, s.length() - 2)) + "]";
+  }
+
+  /** 多任务标识行优先显示任务标题，没有标题才退回短标识。 */
+  private static String titleFor(String key) {
+    synchronized (LOCK) {
+      String title = TITLES.get(key);
+      if (title != null) {
+        title = title.trim();
+        if (!title.isEmpty())
+          return title.length() > 24 ? title.substring(0, 24) + "…" : title;
+      }
+    }
+    return shortTag(key);
   }
 
   /** 换行与连续空白压成单空格：多行是靠系统折行，原样塞进去会看起来像卡住。 */
@@ -391,7 +430,19 @@ public final class OverlayController {
             if (label != null) {
               int maxLines = lines(app);
               // 会话标识只在**最近真有多路在说话**时才贴，而且贴在可见的第一行
-              String full = multiActive() ? shortTag(frame.key) + " " + frame.text : frame.text;
+              // 多任务时的紧凑标识行：告诉用户现在这条属于哪个任务。
+              int active = activeCount();
+              if (header != null) {
+                if (active > 1) {
+                  header.setText(
+                      com.deepseekharness.app.util.UiText.format(
+                          "%d 个任务 · %s", active, titleFor(frame.key)));
+                  if (header.getVisibility() != View.VISIBLE) header.setVisibility(View.VISIBLE);
+                } else if (header.getVisibility() != View.GONE) {
+                  header.setVisibility(View.GONE);
+                }
+              }
+              String full = frame.text;
               CharSequence body = tailLines(app, label, full, maxLines);
               if (!body.toString().contentEquals(label.getText())) label.setText(body);
             }
@@ -575,6 +626,8 @@ public final class OverlayController {
           }
           root = null;
           label = null;
+          header = null;
+          windowParams = null;
           confirmRow = null;
           confirmHint = null;
           wm = null;
@@ -758,6 +811,17 @@ public final class OverlayController {
     box.setPadding(padH, padV, padH, padV);
     box.setVisibility(View.GONE);
 
+    TextView headerView = new TextView(app);
+    headerView.setTextColor(0xB3FFFFFF);
+    headerView.setTextSize(10f);
+    headerView.setIncludeFontPadding(false);
+    headerView.setSingleLine(true);
+    headerView.setVisibility(View.GONE);
+    box.addView(
+        headerView,
+        new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
     TextView tv = new TextView(app);
     tv.setTextColor(Color.WHITE);
     tv.setTextSize(textSp(app));
@@ -824,12 +888,17 @@ public final class OverlayController {
     lp.width = overlayWidthPx(app);
     lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
     lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-    lp.y = dp(app, 34); // 贴状态栏下沿：不遮时钟与刘海，也不抢下拉手势
+    // 位置可拖动：默认贴状态栏下沿，用户拖过就沿用上次的位置。
+    lp.y = prefs(app).getInt(K_Y, dp(app, 34));
 
     try {
       wm.addView(box, lp);
       root = box;
       label = tv;
+      header = headerView;
+      windowParams = lp;
+      attachDrag(app, tv);
+      attachDrag(app, headerView);
       confirmRow = row;
       confirmHint = hint;
       windowContext = app;
@@ -872,6 +941,8 @@ public final class OverlayController {
       wm = null;
       root = null;
       label = null;
+      header = null;
+      windowParams = null;
       confirmRow = null;
       confirmHint = null;
     }
@@ -897,6 +968,74 @@ public final class OverlayController {
     lp.rightMargin = dp(ctx, 8);
     b.setLayoutParams(lp);
     return b;
+  }
+
+  /** 拖动悬浮条：竖向移动并记住位置；轻点仍是收起。 */
+  private static void attachDrag(Context app, View target) {
+    if (target == null) return;
+    target.setOnTouchListener(
+        (view, event) -> {
+          if (windowParams == null || root == null || wm == null) return false;
+          switch (event.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+              dragStartRawY = event.getRawY();
+              dragStartY = windowParams.y;
+              dragging = false;
+              return true;
+            case android.view.MotionEvent.ACTION_MOVE:
+              float dy = event.getRawY() - dragStartRawY;
+              if (!dragging && Math.abs(dy) > dp(app, 3)) dragging = true;
+              if (dragging) {
+                int max = maxOverlayY(app);
+                int y = (int) Math.max(0, Math.min(max, dragStartY + dy));
+                windowParams.y = y;
+                try {
+                  wm.updateViewLayout(root, windowParams);
+                } catch (RuntimeException ignored) {
+                }
+              }
+              return true;
+            case android.view.MotionEvent.ACTION_UP:
+              if (dragging) {
+                prefs(app).edit().putInt(K_Y, windowParams.y).apply();
+              } else if (!confirming) {
+                frames.clear();
+                if (root != null) root.setVisibility(View.GONE);
+              }
+              dragging = false;
+              return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+              dragging = false;
+              return true;
+            default:
+              return false;
+          }
+        });
+  }
+
+  /** 可拖动的纵向范围：不让条子拖出屏幕或压到状态栏。 */
+  private static int maxOverlayY(Context ctx) {
+    try {
+      int screen = ctx.getResources().getDisplayMetrics().heightPixels;
+      if (Build.VERSION.SDK_INT >= 30 && wm != null)
+        screen = wm.getMaximumWindowMetrics().getBounds().height();
+      int height = root == null ? 0 : root.getHeight();
+      return Math.max(0, screen - height - dp(ctx, 8));
+    } catch (Throwable ignored) {
+      return dp(ctx, 400);
+    }
+  }
+
+  /** 最近 {@link #MULTI_WINDOW_MS} 内真在说话的会话数。 */
+  private static int activeCount() {
+    long now = System.currentTimeMillis();
+    int n = 0;
+    synchronized (LOCK) {
+      for (Long t : LAST_SEEN.values()) {
+        if (t != null && now - t <= MULTI_WINDOW_MS) n++;
+      }
+    }
+    return n;
   }
 
   private static int dp(Context ctx, int v) {

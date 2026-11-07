@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "runtimeId": "a6eca9ad5182113d1ba4c9185d90ab628453b222e1e2db7773a61a615cf2c2ee",
+  "runtimeId": "c1fb4376c5e72fb8249eaaedf1ce633b035980b13850635a7e74929e50a63745",
   "baseVersion": "10",
   "dshVersion": "0.2.1-rc.2",
   "launcherContract": "DSHA_ARM64_V2",
@@ -11,7 +11,7 @@
     "DshaAccessibilityService.java": "fe988d4d4bba5559b534a68894cadefabd6197758bc45be4f044fb0a1caa6b40",
     "DshaApp.java": "fbb7d83defc65e3c7fee84e6a5086e29ecd6b525c03cc0b3994e9c7b2165ff9c",
     "HarnessService.java": "20ec5ed83a43963d971fbca357a3ce91faa088cb269a51b5580f032f30868708",
-    "HttpShellService.java": "84be481f8fe2087455f01cee558391029f2aabe95896e8697a7725adb7ac0e90",
+    "HttpShellService.java": "ce94b52d0f8397a88d45dbfe57635cbc532f1d503596d3e58859c365a26373db",
     "LanAuth.java": "1fd3c69940a21d65c0b65ce171a8e60533e70512d0cf419f200dd8431267f1f6",
     "LanProxyService.java": "b441ce3fd689ae245524ea1e18221d14af95c63f212ff5ccf6e51b01e306c40a",
     "PtySession.java": "21d934dc6827f32f68f9f605cd83e28ea07ce505c1d2bd5599dea788fa11d712",
@@ -431,7 +431,7 @@
     "builtin-plugins/dsh-device-shell-guide/lib/index.js": "d3ec0545193eb42f9fd2c09fec9411526088206c06e9fa7bed5f5ac353f62e22",
     "builtin-plugins/dsh-device-shell-guide/package.json": "7a35c16274df97027b7143cf752a20b9675bb286bd2de2f4ea9a0ef72b400285",
     "builtin-plugins/dsh-status-overlay/cordis.patch.yml": "b5bffe96400a2164f313f8c86b071840387015976796fdce1e3e476f233490bd",
-    "builtin-plugins/dsh-status-overlay/lib/index.js": "cf3b51585c8da0a522bcb45fa5851dfa16c512d1a9d92f37278f5af212cd5a7a",
+    "builtin-plugins/dsh-status-overlay/lib/index.js": "675a9614cc0df30d713e94deaf2e5c5ce54dee03287834aa4e6bf513600e0283",
     "builtin-plugins/dsh-status-overlay/package.json": "85d452eb38380a4fe60e92b800f8ea6409926e351fe264b3f01d9113b796dc15",
     "builtin-plugins/dsh-task-notifier/cordis.patch.yml": "bdfd53321389b451a91a077aa12c07533a983f0534dccb63ff48979d8f07ee92",
     "builtin-plugins/dsh-task-notifier/lib/index.js": "f7b3c5658e486386bbe67cc79f9a071f70806613460d3746b929000ffe4ccdbd",
@@ -563,7 +563,7 @@
     "web-integration/session-interaction.js": "6dac58b61d0523376aa514d17019344f56e25da62e7b2530c40b45b02b50a280",
     "web-integration/startup-relay.js": "6198e6ff0451a6986bf41e5c3d1fa871585e9f112e0037d3e227c2539adaea9d",
     "web-integration/startup.js": "e8b4ea47872f57a52a58679f050742fce63670bd3dc6bbf1789f3e27d72c37ba",
-    "web-integration/workspace-actions.js": "beeeb93bdbeef6dcb55e946c82fac2c27313e4c767e419f121a071906de26e43",
+    "web-integration/workspace-actions.js": "d36689a89c2fef90bb19953e85faea0ace7b42e148ccfb56728953e148ab7fb9",
     "welcome-notice-patch.json": "d0f8065428a94e5ff201ea5f7da1d1313dad9e87763989a2ed4155c617342047",
     "workspace-directory-policy-patch.json": "ba3930601d94ed34bd4fe6f29bd8bea3f232c839bd864ff100718d8013a06e68"
   }
