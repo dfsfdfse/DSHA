@@ -886,6 +886,14 @@ public class WebPreviewActivity extends PictureInPictureActivity implements WebF
           return retained.blobDownload;
         },
         () -> retained.pageNavigation);
+    WorkspaceActions.attach(
+        view,
+        baseUrl,
+        () -> {
+          WebPreviewActivity host = retained.owner.get();
+          return host != null && host.isCurrentPage(view) && !host.pageFailed;
+        },
+        this);
     updateDocumentLanguage(view);
     if (androidx.webkit.WebViewFeature.isFeatureSupported(
         androidx.webkit.WebViewFeature.WEB_MESSAGE_LISTENER)) {
