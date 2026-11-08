@@ -1488,6 +1488,25 @@
       post('focus', { value: true });
       refreshSendMode();
     },
+    /** 宿主明确要求切到某个会话（语音「打开某某会话」/ 工具调用）。 */
+    selectSession: function (id) {
+      const want = typeof id === 'string' ? id : '';
+      userPicked = false;
+      selectedId = want;
+      tailSig = '';
+      thinkSig = '';
+      listSig2 = '';
+      el('tail').classList.remove('open');
+      el('think-row').classList.remove('open');
+      if (!pendingImage) el('ask').placeholder = placeholderNow();
+      if (want && want !== 'new'
+          && !(state.tasks || []).some(t => t.id === want)
+          && !askedCurrent.has(want)) {
+        askedCurrent.add(want);
+        post('thread', { session: want });
+      }
+      renderFw();
+    },
     onData: function (json) {
       let d = json;
       if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }

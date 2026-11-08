@@ -86,6 +86,13 @@ public final class FloatWindow {
   private static volatile long voiceRun;
   /** 正在经透明壳启动麦克风前台服务。 */
   private static boolean micStarting;
+  /**
+   * 这次录音是唤醒词叫起来的：用户已经明确表示「现在要用语音办事」，
+   * 识别完直接发出去，不再等他点发送（窗口里手点麦克风仍按设置里的开关走）。
+   */
+  private static boolean wakeVoice;
+  /** 已停止录音、等转写期间要不要直接发送（录音结束时把 wakeVoice 搬过来）。 */
+  private static boolean voiceSendPending;
   /** 正在等转写结果的录音序号；0=没有在等。 */
   private static long voicePendingSeq;
   private static android.media.AudioRecord recorder;
@@ -289,6 +296,30 @@ public final class FloatWindow {
           }
           pullState(app);
           if (web != null) pushPayload();
+        });
+  }
+
+  /**
+   * 把悬浮窗切到指定会话（dsh 工具 / 语音「打开某某会话」用）：
+   * session='' 跟随最近活跃，'new' 新会话草稿，其余为会话 id。
+   */
+  public static void openChat(Context context, String session) {
+    if (context == null) return;
+    final Context app = context.getApplicationContext();
+    final String want = session == null ? "" : session.trim();
+    main.post(
+        () -> {
+          if (!com.deepseekharness.app.OverlayController.permitted(app)) return;
+          setCurrentSession(app, want);
+          if (web == null || realPage) {
+            showCustom(app);
+            return;
+          }
+          // 窗口已经开着：直接让页面切过去（用户手点过的选择也让位给这次明确请求）
+          evaluate(
+              "window.dshFloat&&window.dshFloat.selectSession&&window.dshFloat.selectSession("
+                  + JSONObject.quote(want)
+                  + ")");
         });
   }
 
@@ -2085,6 +2116,7 @@ public final class FloatWindow {
     pendingWake = null;
     if (command == null || web == null || realPage) return;
     if (command.isEmpty()) {
+      wakeVoice = true;
       startVoice();
     } else {
       evaluate(
@@ -2244,6 +2276,8 @@ public final class FloatWindow {
 
   /** 取消录音或丢弃正在转写的结果。 */
   private static void cancelVoice() {
+    wakeVoice = false;
+    voiceSendPending = false;
     releaseRecorder();
     pcm = null;
     voicePendingSeq = 0;
@@ -2255,6 +2289,9 @@ public final class FloatWindow {
     Context ctx = web == null ? null : web.getContext();
     if (ctx == null) return;
     java.io.ByteArrayOutputStream buf = pcm;
+    // 先把「这次是不是语音唤醒」记下来：releaseRecorder 之后 wakeVoice 不再可靠
+    voiceSendPending = wakeVoice;
+    wakeVoice = false;
     releaseRecorder();
     pcm = null;
     final byte[] pcmBytes;
@@ -2363,11 +2400,13 @@ public final class FloatWindow {
       } else if (!error.isEmpty()) {
         evaluate("window.dshFloat&&window.dshFloat.onVoiceError(" + JSONObject.quote(error) + ")");
       } else if (!text.isEmpty()) {
+        boolean autoSend = voiceSendPending || voiceAutoSend(ctx);
+        voiceSendPending = false;
         evaluate(
             "window.dshFloat&&window.dshFloat.onVoice("
                 + JSONObject.quote(text)
                 + ","
-                + (voiceAutoSend(ctx) ? "true" : "false")
+                + (autoSend ? "true" : "false")
                 + ")");
       }
     } catch (Throwable ignored) {

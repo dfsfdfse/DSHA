@@ -1819,6 +1819,12 @@ public final class HttpShellService {
       }
       if ("chat".equals(panel)) {
         if (!OverlayController.permitted(ctx)) return "NO_PERMISSION";
+        // session= 指定会话 id（'new' = 新会话草稿）；带这个参数就切过去，否则沿用记住的会话
+        String session = getParam(q, "session", null);
+        if (session != null) {
+          com.deepseekharness.app.floatwin.FloatWindow.openChat(ctx, session);
+          return "OK chat " + session;
+        }
         com.deepseekharness.app.floatwin.FloatWindow.showCustom(
             ctx, alphaValue, getParam(q, "blocks", null));
         return "OK chat";

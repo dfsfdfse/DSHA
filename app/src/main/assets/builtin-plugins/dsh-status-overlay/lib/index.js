@@ -25,7 +25,8 @@
  * 5) **一个异常都不能冒出去**。这是个「顺带好看」的功能，绝不能影响 agent 干活 ——
  *    所有 IO 与解析都包在 try/catch 里，失败就静默降级。
  */
-import { readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 export const name = 'dsh-status-overlay'
 
 /** 桥地址（App 侧只监听回环，容器与宿主共享网络命名空间，所以直接连得上）。 */
@@ -41,6 +42,9 @@ const WAKE_IN = '/root/.dsh/float-wake.json'
 const WAKE_OUT = '/root/.dsh/float-wake-result.json'
 /** 富内容悬浮窗：只发「重要信息 + 步骤」，不发原始 token。 */
 const FLOAT = 'http://127.0.0.1:3090/app/float'
+/** 会话管理工具的会话目录（删除时移到这里的回收站，不直接抹掉）。 */
+const SESSIONS_ROOT = '/root/.dsh/sessions'
+const SESSION_TRASH = '/root/.dsh/session-trash'
 const TOKEN_PATH = '/root/.dsh/.bridge_token'
 /** 合并窗口：120ms 一次，肉眼看起来仍是连续流动的。 */
 const FLUSH_MS = 120
@@ -569,6 +573,215 @@ async function ensureAgent(wanted) {
   return undefined
 }
 
+/**
+ * 会话清单：优先用已经维护的 threadList，空的时候现拉一次。
+ * @returns {Promise<Array<{id:string,title:string,updated:number,live:boolean}>>}
+ */
+async function sessionRows() {
+  if (!threadList.length) await refreshThreads()
+  return threadList.slice(0, 40)
+}
+
+/** 会话 id → 磁盘上的会话目录（可能不存在）。 */
+function sessionDirOf(id) {
+  const target = 'session-' + String(id || '')
+  try {
+    for (const name of readdirSync(SESSIONS_ROOT)) {
+      const dir = join(SESSIONS_ROOT, name, target)
+      if (existsSync(dir)) return dir
+    }
+  } catch { /* 目录结构不认识就当没找到 */ }
+  return ''
+}
+
+/** 让 App 切到指定会话（''=跟随最近活跃，'new'=新会话草稿）。 */
+async function openInApp(session) {
+  const tok = bridgeToken()
+  if (!tok) return false
+  const url = 'http://127.0.0.1:3090/app/floatwin?panel=chat&session=' + encodeURIComponent(session || '')
+  try {
+    const res = await fetch(url, { headers: { 'X-Token': tok }, signal: AbortSignal.timeout(4000) })
+    const body = (await res.text()).trim()
+    return body.startsWith('OK')
+  } catch {
+    return false
+  }
+}
+
+/** 会话管理：语音说「删掉最近的会话」「打开昨天那个」「新建会话」都走这里。 */
+const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'delete']
+
+async function sessionAdmin(args) {
+  const action = String(args?.action || '')
+  const wanted = String(args?.session || '').trim()
+  if (action === 'list') {
+    const rows = await sessionRows()
+    const q = String(args?.query || '').trim().toLowerCase()
+    const picked = q
+      ? rows.filter(r => String(r.title || '').toLowerCase().includes(q) || r.id.startsWith(q))
+      : rows
+    const limit = Math.max(1, Math.min(40, Number(args?.limit) || 10))
+    if (!picked.length) return { ok: true, count: 0, text: '没有匹配的会话。' }
+    const lines = picked.slice(0, limit).map((r, i) => {
+      const when = r.updated ? new Date(r.updated).toLocaleString('zh-CN') : ''
+      return `${i + 1}. ${r.title || '(未命名)'} · ${r.id.slice(-8)} · ${when}${r.live ? ' · 进行中' : ''}`
+    })
+    return { ok: true, count: picked.length, text: `共 ${picked.length} 个会话：\n` + lines.join('\n') }
+  }
+  if (action === 'read') {
+    if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）' }
+    if (!queryApi) return { ok: false, count: 0, text: '会话查询服务不可用' }
+    const loaded = await queryApi.readSession(wanted)
+    const events = Array.isArray(loaded?.events) ? loaded.events.slice(-260) : []
+    const rows = []
+    for (const event of events) {
+      const data = event?.data || {}
+      const textOf = content => Array.isArray(content)
+        ? content.filter(p => p && p.type === 'text').map(p => p.text).join('').trim()
+        : ''
+      if (event.type === 'user/message') {
+        const kind = String(data?.source?.kind || data?.message?.source?.kind || '')
+        if (kind && kind !== 'user') continue
+        const text = textOf(data.message?.content || data.content)
+        if (text) rows.push({ role: '用户', text: text.slice(0, 800) })
+      } else if (event.type === 'assistant/message') {
+        const text = textOf(data.message?.content || data.content)
+        if (text) rows.push({ role: '助手', text: text.slice(0, 800) })
+      }
+    }
+    const tail = rows.slice(-(Math.max(1, Math.min(40, Number(args?.limit) || 12))))
+    if (!tail.length) return { ok: true, count: 0, text: '这个会话没有可读的对话记录。' }
+    return {
+      ok: true,
+      count: tail.length,
+      text: `会话 ${wanted} 最近 ${tail.length} 条：\n` + tail.map(r => `【${r.role}】${r.text}`).join('\n'),
+    }
+  }
+  if (action === 'open') {
+    const rows = await sessionRows()
+    let id = wanted
+    if (!id) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先 list 查 id' }
+    if (id === 'new') return sessionAdmin({ action: 'new' })
+    const hit = rows.find(r => r.id === id)
+      || rows.find(r => r.id.startsWith(id))
+      || rows.find(r => String(r.title || '').includes(id))
+    if (hit) id = hit.id
+    const ok = await openInApp(id)
+    return ok
+      ? { ok: true, count: 1, text: `已打开会话 ${hit ? (hit.title || id.slice(-8)) : id.slice(-8)}（${id}）` }
+      : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
+  }
+  if (action === 'new') {
+    const ok = await openInApp('new')
+    return ok
+      ? { ok: true, count: 1, text: '已打开悬浮窗的新会话，接着说的话就是新会话的第一句' }
+      : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
+  }
+  if (action === 'delete') {
+    if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先用 list 查' }
+    if (args?.confirm !== true) {
+      return { ok: false, count: 0, text: `要删除会话 ${wanted} 需要把 confirm 设为 true；删除会移进回收站，可人工恢复` }
+    }
+    if (agentsApi && agentsApi.get && agentsApi.get(wanted)) {
+      return { ok: false, count: 0, text: '这个会话正在运行，先停止再删' }
+    }
+    const dir = sessionDirOf(wanted)
+    if (!dir) return { ok: false, count: 0, text: `找不到会话 ${wanted} 的存储目录` }
+    try {
+      mkdirSync(SESSION_TRASH, { recursive: true })
+      const dest = join(SESSION_TRASH, `${Date.now()}-session-${wanted}`)
+      renameSync(dir, dest)
+      threadList = threadList.filter(r => r.id !== wanted)
+      try { state.delete(String(wanted).slice(-8)) } catch { }
+      publishFloat('')
+      return { ok: true, count: 1, text: `已删除会话 ${wanted}（已移到 ${SESSION_TRASH}，需要的话可以恢复）` }
+    } catch (error) {
+      return { ok: false, count: 0, text: '删除失败：' + String(error?.message || error).slice(0, 120) }
+    }
+  }
+  return { ok: false, count: 0, text: `不认识的动作 ${action}；可用：${SESSION_ACTIONS.join(' / ')}` }
+}
+
+/** 工具面：给模型一个稳定的入口，而不是让它自己拼 shell 或猜文件路径。 */
+function registerSessionTool(ctx) {
+  const disposers = []
+  try {
+    disposers.push(ctx.tools.register({
+      name: 'rcha_session_admin',
+      description: [
+        '管理 RCHA/dsh 的会话与聊天记录（用户常用语音提出这类请求）。',
+        'list：列出会话（可按 query 过滤标题或 id 前缀），返回标题、id 尾部、时间；',
+        'read：读某个会话最近的对话记录（session 传 id，uuid 尾部也能识别）；',
+        'open：在悬浮窗里打开指定会话，用户说「打开某某会话」时用这个；',
+        'new：打开一个新会话草稿，用户说「新建会话」时用这个；',
+        'delete：删除会话（必须 confirm:true，会先移进回收站，不是不可恢复）。',
+        '调用前先用 list 拿到准确的 id，不要臆造。',
+      ].join(' '),
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action'],
+        properties: {
+          action: { type: 'string', required: true, enum: [...SESSION_ACTIONS], description: 'list | read | open | new | delete' },
+          session: { type: 'string', description: '会话 id（open/read/delete 必填）；uuid 尾部或标题片段也接受' },
+          query: { type: 'string', description: 'list 时按标题或 id 前缀过滤' },
+          limit: { type: 'integer', description: 'list 返回条数（默认 10）、read 返回轮数（默认 12）' },
+          confirm: { type: 'boolean', description: 'delete 时必须为 true 才会真正删除' },
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['ok', 'count', 'text'],
+          properties: {
+            ok: { type: 'boolean', required: true },
+            count: { type: 'integer', required: true },
+            text: { type: 'string', required: true },
+          },
+        },
+        render: (_args, value) => [{ type: 'text', text: value.text }],
+      },
+      async execute(args) {
+        return sessionAdmin(args)
+      },
+    }))
+  } catch { /* 工具注册失败不影响悬浮窗本身 */ }
+  return () => {
+    for (const dispose of disposers) {
+      try { dispose() } catch { }
+    }
+  }
+}
+
+/** 运行时技能：把「用语音管会话」这件事写清楚，模型自己决定什么时候用。 */
+function registerSessionSkill(ctx) {
+  try {
+    return ctx.skills.register({
+      name: 'rcha-voice-sessions',
+      description: '用语音（或文字）查询、打开、新建、删除 RCHA 的会话与聊天记录。',
+      content: [
+        '# 语音/文字管理会话',
+        '',
+        '用户可能通过悬浮窗语音说这类话，转写文本会有错字，先按意图理解再执行：',
+        '',
+        '- 「有哪些会话 / 最近聊了什么」→ `rcha_session_admin` `{action:"list"}`；需要看内容再 `{action:"read", session:"<id>"}`。',
+        '- 「打开 X 那个会话」→ 先 `list` 找到准确 id，再 `{action:"open", session:"<id>"}`；不要臆造 id。',
+        '- 「新建会话 / 开个新的」→ `{action:"new"}`。',
+        '- 「删掉 X 会话」→ 先 `list` 确认是哪一个，向用户复述标题与时间，得到确认后再 `{action:"delete", session:"<id>", confirm:true}`。删除是移到 /root/.dsh/session-trash，可人工恢复，但不要批量删、不要删当前正在用的会话。',
+        '',
+        '规则：',
+        '1. 会话 id 只从 `list` 的结果里取，取尾部 8 位也能用。',
+        '2. 删除不可默认执行，必须用户明确说要删、且确认对象正确。',
+        '3. 用户只是聊天（比如「帮我写个函数」）时不要调用这些动作。',
+        '4. 动作完成后用一句中文口语回报结果，不要贴原始 JSON。',
+      ].join('\n'),
+    })
+  } catch {
+    return () => {}
+  }
+}
+
 /** 把一条提示写进状态并立刻推给页面（7 秒后页面自己收起来）。 */
 let noticeTimer
 function setNotice(text) {
@@ -877,6 +1090,8 @@ export function apply(ctx) {
     void refreshModels()
     return () => { llmApi = undefined }
   })
+  ctx.inject(['tools'], scoped => registerSessionTool(scoped))
+  ctx.inject(['skills'], scoped => registerSessionSkill(scoped))
   ctx.inject(['sessionQuery'], scoped => {
     queryApi = scoped.sessionQuery
     void refreshThreads()
