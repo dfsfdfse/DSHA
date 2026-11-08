@@ -188,6 +188,10 @@ public final class FloatWindow {
   private static final String K_ZOOM = "floatwin_zoom";
   /** 设置页（原生视图，整窗覆盖）；打开时压在网页与窗口按钮之上。 */
   private static View settingsPanel;
+  /** 紧凑模式：窗口压到一小条，只露最近的消息和输入栏；再点展开回原高度。 */
+  private static final String K_COMPACT = "floatwin_compact";
+  private static final int COMPACT_DP = 200;
+  private static android.widget.TextView compactButton;
 
   public static void showCustom(Context context) {
     showCustom(context, 0, null);
@@ -446,6 +450,39 @@ public final class FloatWindow {
     }
   }
 
+  /**
+   * 把正在显示的悬浮窗画成 PNG（应用自己画，不经无障碍或截屏授权）。
+   *
+   * @return 同步等待主线程结果：OK / NOT_OPEN / FAIL
+   */
+  public static String capture(String outPath) {
+    final String[] result = {"FAIL"};
+    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+    main.post(
+        () -> {
+          try {
+            if (container == null) result[0] = "NOT_OPEN";
+            else if (FloatSnapshot.capture(container, new File(outPath)))
+              result[0] = "OK " + container.getWidth() + "x" + container.getHeight()
+                  + (realPage ? " dsh" : " custom") + (settingsPanel != null ? " settings" : "");
+          } finally {
+            latch.countDown();
+          }
+        });
+    try {
+      latch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+    } catch (InterruptedException ignored) {
+      Thread.currentThread().interrupt();
+    }
+    return result[0];
+  }
+
+  /** 当前 dsh 页面地址（离屏出图用）；dsh 未启动返回空串。 */
+  public static String dshUrl(Context ctx) {
+    String url = webUrl(ctx);
+    return url == null ? "" : url;
+  }
+
   /** 窗口当前是否开着（入口打开的那扇）。 */
   public static boolean isOpen() {
     return web != null;
@@ -560,11 +597,20 @@ public final class FloatWindow {
     FrameLayout.LayoutParams stripParams =
         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, HEAD_DP));
     stripParams.gravity = Gravity.TOP;
-    stripParams.rightMargin = dp(app, 104);
+    stripParams.rightMargin = dp(app, 134);
     frame.addView(strip, stripParams);
     attachMove(strip, frame);
 
-    // 悬浮窗自己的按钮：菜单 / 关闭 / 回到应用。
+    // 悬浮窗自己的按钮：收起展开 / 菜单 / 关闭 / 回到应用。
+    FrameLayout.LayoutParams compactParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
+    compactParams.gravity = Gravity.TOP | Gravity.END;
+    compactParams.topMargin = dp(app, 4);
+    compactParams.rightMargin = dp(app, 96);
+    final android.widget.TextView compactBtn =
+        overlayButton(app, prefs(app).getBoolean(K_COMPACT, false) ? "▴" : "▾");
+    frame.addView(compactBtn, compactParams);
+    compactBtn.setOnClickListener(v -> toggleCompact(app));
+    compactButton = compactBtn;
     FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
     menuParams.gravity = Gravity.TOP | Gravity.END;
     menuParams.topMargin = dp(app, 4);
@@ -638,6 +684,7 @@ public final class FloatWindow {
     int defaultH = Math.min(dp(app, 340), (int) (screenH * 0.55f));
     lp.width = Math.max(dp(app, MIN_W_DP), Math.min(screenW, p.getInt(K_W, defaultW)));
     lp.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, p.getInt(K_H, defaultH)));
+    if (p.getBoolean(K_COMPACT, false)) lp.height = Math.min(lp.height, dp(app, COMPACT_DP));
     lp.gravity = Gravity.TOP | Gravity.START;
     lp.x = clamp(p.getInt(K_X, (screenW - lp.width) / 2), 0, Math.max(0, screenW - lp.width));
     lp.y = clamp(p.getInt(K_Y, dp(app, 64)), 0, Math.max(0, screenH - lp.height));
@@ -1124,7 +1171,8 @@ public final class FloatWindow {
     params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, height));
     params.x = clamp((screenW - params.width) / 2, 0, Math.max(0, screenW - params.width));
     params.y = clamp(dp(app, 64), 0, Math.max(0, screenH - params.height));
-    prefs(app).edit().remove(K_X).remove(K_Y).remove(K_W).remove(K_H).apply();
+    prefs(app).edit().remove(K_X).remove(K_Y).remove(K_W).remove(K_H).putBoolean(K_COMPACT, false).apply();
+    if (compactButton != null) compactButton.setText("▾");
     updateLayout(container);
   }
 
@@ -1181,6 +1229,7 @@ public final class FloatWindow {
             case MotionEvent.ACTION_CANCEL: {
               moving = false;
               if (dragMoved) persist();
+              else if (realPage && appCtx != null) toggleCompact(appCtx);
               else if (web != null) {
                 web.evaluateJavascript("window.dshFloat&&window.dshFloat.toggle()", null);
               }
@@ -1249,8 +1298,36 @@ public final class FloatWindow {
         .putInt(K_X, params.x)
         .putInt(K_Y, params.y)
         .putInt(K_W, params.width)
-        .putInt(K_H, params.height)
         .apply();
+    // 紧凑模式下的高度是临时的，不覆盖展开高度；用户在紧凑时拖高就视为展开。
+    if (!prefs(appCtx).getBoolean(K_COMPACT, false)) {
+      prefs(appCtx).edit().putInt(K_H, params.height).apply();
+    } else if (params.height > dp(appCtx, COMPACT_DP + 40)) {
+      prefs(appCtx).edit().putBoolean(K_COMPACT, false).putInt(K_H, params.height).apply();
+      if (compactButton != null) compactButton.setText("▾");
+    }
+  }
+
+  /** 收起成一小条（只看最近消息 + 输入栏）或展开回保存的高度；网页不重载，dsh 自己按高度重排。 */
+  private static void toggleCompact(Context app) {
+    if (params == null || container == null) return;
+    SharedPreferences p = prefs(app);
+    boolean compact = !p.getBoolean(K_COMPACT, false);
+    int screenH = screenH(app);
+    if (compact) {
+      if (params.height > dp(app, COMPACT_DP)) p.edit().putInt(K_H, params.height).apply();
+      params.height = Math.min(params.height, dp(app, COMPACT_DP));
+    } else {
+      int defaultH = Math.min(dp(app, 340), (int) (screenH * 0.55f));
+      int full = Math.max(dp(app, COMPACT_DP + 60), p.getInt(K_H, defaultH));
+      params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, full));
+    }
+    // 展开时向下长；碰到屏幕底就整体上移
+    params.y = clamp(params.y, 0, Math.max(0, screenH - params.height));
+    p.edit().putBoolean(K_COMPACT, compact).apply();
+    if (compactButton != null) compactButton.setText(compact ? "▴" : "▾");
+    closeSettings();
+    updateLayout(container);
   }
 
   private static void onMessage(String data, JavaScriptReplyProxy reply) {
@@ -1796,6 +1873,7 @@ public final class FloatWindow {
       }
     }
     settingsPanel = null;
+    compactButton = null;
     container = null;
     web = null;
     wm = null;

@@ -34,6 +34,27 @@ public final class FloatSnapshot {
    */
   public static void render(
       Context ctx, String html, String path, int width, int height, File out, Callback done) {
+    render(ctx, html, path, "", 100, 600, width, height, out, done);
+  }
+
+  /**
+   * 同上，另可直接加载 url（例如 dsh 的真实页面）并指定 textZoom 与出图前等待时长。
+   *
+   * @param url 非空时加载该地址，忽略 html/path
+   * @param zoom WebView textZoom 百分比
+   * @param waitMs 页面加载完再等多久出图（SPA 首屏要等数据回来）
+   */
+  public static void render(
+      Context ctx,
+      String html,
+      String path,
+      String url,
+      int zoom,
+      int waitMs,
+      int width,
+      int height,
+      File out,
+      Callback done) {
     if (ctx == null || out == null) return;
     final Context app = ctx.getApplicationContext();
     final int w = Math.max(240, width);
@@ -55,6 +76,7 @@ public final class FloatSnapshot {
           final WebView web = new WebView(app);
           web.getSettings().setJavaScriptEnabled(true);
           web.getSettings().setDomStorageEnabled(true);
+          web.getSettings().setTextZoom(Math.max(50, Math.min(150, zoom)));
           web.setVerticalScrollBarEnabled(false);
           web.setHorizontalScrollBarEnabled(false);
           final float density = app.getResources().getDisplayMetrics().density;
@@ -93,16 +115,38 @@ public final class FloatSnapshot {
                         }
                         if (done != null) done.done(ok);
                       },
-                      600);
+                      Math.max(300, Math.min(20000, waitMs)));
                 }
               });
-          if (page.isEmpty()) {
+          if (url != null && url.startsWith("http")) {
+            web.loadUrl(url);
+          } else if (page.isEmpty()) {
             web.loadDataWithBaseURL(
                 BASE_URL, "<html><body style='color:#fff'>empty</body></html>", "text/html", "utf-8", null);
           } else {
             web.loadDataWithBaseURL(BASE_URL, page, "text/html", "utf-8", null);
           }
         });
+  }
+
+  /** 把一个已经挂在窗口上的视图（悬浮窗本体）画成 PNG；必须在主线程调用。 */
+  static boolean capture(android.view.View view, File out) {
+    if (view == null || out == null || view.getWidth() <= 0 || view.getHeight() <= 0) return false;
+    try {
+      Bitmap bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(), Bitmap.Config.ARGB_8888);
+      Canvas canvas = new Canvas(bitmap);
+      canvas.drawColor(0xFF808080);
+      view.draw(canvas);
+      File parent = out.getParentFile();
+      if (parent != null) parent.mkdirs();
+      try (FileOutputStream stream = new FileOutputStream(out)) {
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
+      }
+      bitmap.recycle();
+      return out.isFile() && out.length() > 0;
+    } catch (Throwable error) {
+      return false;
+    }
   }
 
   public interface Callback {
