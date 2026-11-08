@@ -1327,7 +1327,10 @@ public final class FloatWindow {
     if (dragStrip != null) {
       FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams) dragStrip.getLayoutParams();
       sp.rightMargin = dp(app, 10 + 28 * slot);
-      sp.height = dp(app, tier == 1 ? 24 : HEAD_DP);
+      // 自绘页（1、2 档）顶行 28：左边是会话标签，拖动区从标签右边开始（页面报 dragzone）；
+      // dsh 页面（3 档）整条都是拖动区
+      sp.height = dp(app, tier == 3 ? HEAD_DP : 28);
+      if (tier == 3) sp.leftMargin = 0;
       dragStrip.setLayoutParams(sp);
     }
     // 迷你档高度由内容决定，竖向缩放手柄收起，免得盖住输入栏
@@ -1472,6 +1475,16 @@ public final class FloatWindow {
         case "tier": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) setTier(ctx, p.optInt("value", tier + 1));
+          return;
+        }
+        case "dragzone": {
+          if (realPage || dragStrip == null || appCtx == null) return;
+          int left = Math.max(0, p.optInt("left", 0));
+          FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams) dragStrip.getLayoutParams();
+          int px = dp(appCtx, left);
+          if (sp.leftMargin == px) return;
+          sp.leftMargin = px;
+          dragStrip.setLayoutParams(sp);
           return;
         }
         case "fit": {

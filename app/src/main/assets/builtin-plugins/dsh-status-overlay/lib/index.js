@@ -511,7 +511,9 @@ function permissionOf(session) {
 async function ensureAgent(wanted) {
   if (!agentsApi) return undefined
   const id = String(wanted || '').trim()
-  const live = liveAgent(agentsApi, id)
+  // 悬浮窗的「＋ 新会话」：不复用任何现有会话，直接新建
+  const fresh = id === 'new'
+  const live = fresh ? undefined : liveAgent(agentsApi, id)
   if (live) return live
   const modelSelection = (() => {
     try { return defaultModelApi?.currentSelection?.() } catch { return undefined }
@@ -520,7 +522,7 @@ async function ensureAgent(wanted) {
   if (modelSelection?.provider) agentOptions.provider = String(modelSelection.provider)
   if (modelSelection?.model) agentOptions.model = String(modelSelection.model)
   // 先试着恢复指定的老会话，再退到新建
-  if (id) {
+  if (id && !fresh) {
     try {
       const resumed = await agentsApi.resume({ resumeSessionId: id, agentOptions })
       if (resumed?.agent) return resumed.agent

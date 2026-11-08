@@ -711,88 +711,161 @@
     border-right: 1px solid var(--muted); border-bottom: 1px solid var(--muted);
   }
 
-  /* ═════════ 迷你档（默认）：最新回答 + 一行输入，高度贴内容，带一点透明 ═════════
-     只有 body.mini 下生效；标准档仍是上面那套对话页。 */
-  #mini { display: none; }
-  body.mini #mini { display: block; flex: 0 0 auto; }
-  body.mini #head, body.mini #tabrow, body.mini #list, body.mini #usage-card,
-  body.mini #goalbar, body.mini #dock, body.mini #menu, body.mini #grip,
-  body.mini #cmd-menu, body.mini #perm-menu, body.mini #model-menu { display: none !important; }
-  body.mini #card {
-    height: auto;
+  /* ═════════ 迷你（1）/ 标准（2）两档：同一套新布局；完整档（3）是 dsh 页面本身 ═════════
+     顶行是会话标签与「新会话」，标签右边的空白是原生拖动区，再右是原生窗口按钮。 */
+  #fwtop, #fwbody { display: none; }
+  body.fw #head, body.fw #tabrow, body.fw #list, body.fw #usage-card,
+  body.fw #goalbar, body.fw #dock, body.fw #menu, body.fw #grip,
+  body.fw #perm-menu, body.fw #model-menu { display: none !important; }
+  body.t1 #cmd-menu, body.t1 #at-menu, body.t1 #notice { display: none !important; }
+  body.fw {
+    --fw-bg: rgba(255, 255, 255, .80);
+    --fw-line: rgba(0, 0, 0, .06);
+    --fw-field: rgba(255, 255, 255, .72);
+    --fw-text: rgb(53, 54, 56);          /* neutral-bluish-800，比纯黑浅一档 */
+    --fw-sub: rgb(129, 133, 140);        /* label-tertiary */
+    --fw-chip: rgba(38, 49, 72, .06);    /* interactive-bg-hover */
+    --fw-bubble: rgba(237, 243, 254, .9);/* deepseek-50 */
+    --fw-btns: 62px;
+  }
+  body.fw.dark {
+    --fw-bg: rgba(27, 27, 28, .82);
+    --fw-line: rgba(255, 255, 255, .08);
+    --fw-field: rgba(255, 255, 255, .06);
+    --fw-text: rgb(225, 229, 238);
+    --fw-sub: rgb(151, 157, 166);
+    --fw-chip: rgba(255, 255, 255, .08);
+    --fw-bubble: rgba(122, 170, 255, .14);
+  }
+  body.t2 { --fw-bg: rgba(255, 255, 255, .92); --fw-btns: 146px; }
+  body.t2.dark { --fw-bg: rgba(27, 27, 28, .94); }
+  body.fw #card {
     padding: 0 8px 8px;
-    background: rgba(var(--bg-rgb), .86);
-    border: 0.5px solid var(--line);
-    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    background: var(--fw-bg);
+    border: 0.5px solid var(--fw-line);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
+    color: var(--fw-text);
   }
-  /* 顶行：与原生拖动带等高（24），左边状态，右边让给「放大 / 关闭」两个按钮 */
-  #mini-top {
-    height: 24px; display: flex; align-items: center; gap: 6px;
-    padding: 0 66px 0 4px;
-    font-size: 11px; line-height: 16px; color: var(--tertiary);
-    white-space: nowrap; overflow: hidden;
+  body.t1 #card { height: auto; }
+
+  body.fw #fwtop { display: flex; flex: 0 0 auto; height: 28px; align-items: center; }
+  #fwtabs {
+    display: flex; align-items: center; gap: 2px; min-width: 0;
+    max-width: calc(100% - var(--fw-btns) - 40px);
+    overflow-x: auto; scrollbar-width: none;
   }
-  #mini-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--caption); }
-  body.running #mini-dot { background: var(--accent); animation: mini-pulse 1.2s ease-in-out infinite; }
-  @keyframes mini-pulse { 50% { opacity: .35; } }
-  #mini-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  /* 最新回答：默认两行；点一下展开（窗口跟着长，最多 ~260px 后内部滚动） */
-  #mini-answer {
-    padding: 0 4px 2px;
-    font-size: 13px; line-height: 20px; color: var(--fg);
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    overflow: hidden; overflow-wrap: anywhere;
+  #fwtabs::-webkit-scrollbar { display: none; }
+  .fwtab {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; max-width: 104px; padding: 0 7px; border: none; border-radius: 4px;
+    background: transparent; color: var(--fw-sub);
+    font: inherit; font-size: 12px; line-height: 22px; white-space: nowrap;
   }
-  #mini-answer.step { color: var(--muted); }
-  #mini-answer.step .k { color: var(--tertiary); }
-  #mini-answer:empty { display: none; }
-  #mini-answer.open {
-    display: block; -webkit-line-clamp: unset;
-    max-height: 260px; overflow-y: auto; white-space: pre-wrap;
+  .fwtab span { overflow: hidden; text-overflow: ellipsis; }
+  .fwtab.on { background: var(--fw-chip); color: var(--fw-text); font-weight: 600; }
+  .fwtab i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    animation: fw-pulse 1.2s ease-in-out infinite; }
+  @keyframes fw-pulse { 50% { opacity: .3; } }
+  .fwtab.new { width: 22px; padding: 0; justify-content: center; }
+  .fwtab.new svg { width: 12px; height: 12px; display: block; }
+
+  body.fw #fwbody { display: flex; flex-direction: column; min-height: 0; }
+  body.t2 #fwbody { flex: 1 1 auto; }
+  /* 迷你：最新回答的结尾几行连续显示，旧内容从上沿渐隐出去（不在句尾截断）；点一下看全文 */
+  #tail, #tail-step, #mlist { display: none; }
+  body.t1 #tail {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    max-height: 60px; overflow: hidden; padding: 0 4px;
+    font-size: 13px; line-height: 20px; color: var(--fw-text);
   }
-  #mini-answer.open::-webkit-scrollbar { width: 0; }
-  #mini-answer code { font-size: 12px; padding: 0 3px; border-radius: 3px; background: var(--selector); }
-  #mini-answer pre { margin: 4px 0; padding: 6px 8px; border-radius: 4px; background: var(--selector);
-    font-size: 12px; line-height: 18px; white-space: pre-wrap; }
-  #mini-answer ul { margin: 2px 0; padding-left: 18px; }
-  #mini-answer .md-h { font-weight: 600; }
-  /* 输入：一行，[+] 输入框 [发送]；+ 展开 图片 / 文件 / 语音 */
-  body.mini #compose {
+  body.t1 #tail.over {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+  }
+  body.t1 #tail.open {
+    display: block; max-height: 280px; overflow-y: auto;
+    -webkit-mask-image: none; mask-image: none;
+  }
+  #tail::-webkit-scrollbar { width: 0; }
+  #tail-text { overflow-wrap: anywhere; }
+  #tail.open #tail-text { white-space: pre-wrap; }
+  body.t1 #tail-step:not(:empty) {
+    display: block; padding: 2px 4px 0;
+    font-size: 11px; line-height: 16px; color: var(--fw-sub);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* 标准：完整对话，全部内容不截断；思考 / 工具是一行，点开看全文 */
+  body.t2 #mlist {
+    display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    padding: 2px 4px 6px; font-size: 13px; line-height: 20px;
+  }
+  #mlist::-webkit-scrollbar { width: 0; }
+  .m-user { display: flex; justify-content: flex-end; margin: 10px 0 4px; }
+  .m-user div {
+    max-width: 84%; padding: 6px 10px; border-radius: 8px;
+    background: var(--fw-bubble); color: var(--fw-text);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .m-text { margin: 4px 0; color: var(--fw-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .m-text.sub, .m-step.sub { margin-left: 12px; }
+  #tail code, .m-text code { font-size: 12px; padding: 0 3px; border-radius: 3px; background: var(--fw-chip); }
+  #tail pre, .m-text pre {
+    margin: 4px 0; padding: 6px 8px; border-radius: 4px; background: var(--fw-chip);
+    font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #tail ul, .m-text ul { margin: 2px 0; padding-left: 18px; white-space: normal; }
+  #tail .md-h, .m-text .md-h { font-weight: 600; }
+  .m-step {
+    display: flex; align-items: flex-start; gap: 6px; padding: 2px 0;
+    font-size: 12px; line-height: 18px; color: var(--fw-sub);
+  }
+  .m-step .ic { flex: none; width: 14px; height: 18px; display: grid; place-items: center; }
+  .m-step .ic svg { width: 12px; height: 12px; display: block; }
+  .m-step .tx { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-step .tx b { font-weight: 500; }
+  .m-step.open .tx { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .m-step.fail .ic { color: var(--danger); }
+  .m-note { margin: 6px 0; text-align: center; font-size: 11px; line-height: 16px; color: var(--fw-sub); }
+  .m-run { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; font-size: 12px; line-height: 18px; color: var(--accent); }
+  .m-run span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-run i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: fw-pulse 1.2s ease-in-out infinite; }
+  .m-empty { padding: 28px 0; text-align: center; font-size: 12px; color: var(--fw-sub); }
+
+  /* 输入：一行 [+] 输入框 [发送]；+ 就地展开 图片 / 文件 / 语音；有字或在跑才出右侧按钮 */
+  body.fw #compose {
     flex-direction: row; align-items: center; gap: 2px;
-    margin-top: 6px; padding: 3px 4px;
-    border: 0.5px solid var(--line); border-radius: 6px;
+    margin-top: 6px; padding: 2px 4px;
+    background: var(--fw-field); border: 0.5px solid var(--fw-line); border-radius: 6px;
   }
-  body.mini #compose::before { display: none; }
-  body.mini #compose .row { display: contents; }
-  body.mini #compose .row > span[style] { display: none; }
-  body.mini #perm, body.mini #model { display: none !important; }
-  body.mini #pick { order: 0; width: 28px; height: 28px; background: transparent; color: var(--muted); }
-  body.mini #pick svg { transition: transform .15s ease; }
-  body.mini.plus-open #pick svg { transform: rotate(45deg); }
-  body.mini #img, body.mini #attach, body.mini #mic { display: none; order: 1; width: 28px; height: 28px; }
-  body.mini.plus-open #img, body.mini.plus-open #attach, body.mini.plus-open #mic { display: grid; }
-  body.mini #ask {
+  body.fw #compose::before { display: none; }
+  body.fw #compose .row { display: contents; }
+  body.fw #compose .row > span[style] { display: none; }
+  body.fw #perm, body.fw #model { display: none !important; }
+  body.fw #pick { order: 0; width: 28px; height: 28px; background: transparent; color: var(--fw-sub); }
+  body.fw #pick svg { transition: transform .15s ease; }
+  body.fw.plus-open #pick svg { transform: rotate(45deg); }
+  body.fw #img, body.fw #attach, body.fw #mic { display: none; order: 1; width: 28px; height: 28px; color: var(--fw-sub); }
+  body.fw.plus-open #img, body.fw.plus-open #attach, body.fw.plus-open #mic { display: grid; }
+  body.fw #ask {
     order: 2; flex: 1 1 auto; min-width: 0;
     min-height: 28px; height: 28px; max-height: 64px;
-    padding: 4px 4px; font-size: 14px; line-height: 20px;
+    padding: 4px; font-size: 14px; line-height: 20px; color: var(--fw-text);
   }
-  body.mini #send { order: 3; width: 28px; height: 28px; }
-  body.mini #send svg { width: 14px; height: 14px; }
-  body.mini:not(.has-text):not(.busy):not(.sending) #send { display: none; }
-  body.mini #attach-bar { padding: 6px 2px 0; }
-  /* 迷你档不弹提示条：错误类提示在标准档看 */
-  body.mini #notice { display: none !important; }
+  body.fw #ask::placeholder { color: var(--fw-sub); }
+  body.fw #send { order: 3; width: 26px; height: 26px; }
+  body.fw #send svg { width: 13px; height: 13px; }
+  body.fw:not(.has-text):not(.busy):not(.sending) #send { display: none; }
+  body.fw #attach-bar { padding: 6px 2px 0; }
   #img { display: none; }
-  /* 标准档：会话标签行已经列出当前会话名，标题重复且被右上角 5 个原生按钮挤成「R…」，收起 */
-  body:not(.mini) #card:has(#tabs:not([hidden])) #title,
-  body:not(.mini) #card:has(#tabs:not([hidden])) #head .headspacer { display: none; }
 </style>
 </head>
 <body>
 <div id="card">
-  <div id="mini">
-    <div id="mini-top"><span id="mini-dot"></span><span id="mini-status">RCHA</span></div>
-    <div id="mini-answer"></div>
+  <div id="fwtop"><div id="fwtabs"></div></div>
+  <div id="fwbody">
+    <div id="tail"><div id="tail-text"></div></div>
+    <div id="tail-step"></div>
+    <div id="mlist"></div>
   </div>
   <div id="head">
     <span id="title">RCHA</span>
@@ -1046,7 +1119,8 @@
   /** dsh 原文：conversation.placeholder.default */
   const PLACEHOLDER = '发消息或创建任务, / 调用指令, @ 文件或对话';
   /** 迷你档一行放不下整句，换成短的。 */
-  const placeholderNow = () => (document.body.classList.contains('mini') ? '发消息…' : PLACEHOLDER);
+  const placeholderNow = () => (!document.body.classList.contains('fw') ? PLACEHOLDER
+    : selectedId === 'new' ? '新会话：发消息…' : '发消息…');
 
   let pendingImage = '';
   let pendingFile = '';
@@ -1217,7 +1291,7 @@
     setTier: function (n) { applyTier(n); },
     toggle: function () {
       // 迷你档：轻点顶行 = 展开 / 收起最新回答
-      if (document.body.classList.contains('mini')) { toggleMiniAnswer(); return; }
+      if (isFw()) { toggleTail(); return; }
       // 轻点拖动条：展开/收起最新一条消息
       const msgs = document.querySelectorAll('#list .msg');
       if (!msgs.length) return;
@@ -1282,35 +1356,54 @@
     }
   };
 
-  // ═════════ 迷你档 ═════════
+  // ═════════ 新布局：迷你（1）/ 标准（2） ═════════
   let tier = 0;
-  let miniEmpty = true;
-  let miniSig = '';
-  let miniTimer = 0;
+  let fwEmpty = true;
+  /** '' = 跟随最近活跃的会话；'new' = 新会话草稿；其他 = 用户点选的会话 id。 */
+  let selectedId = '';
+  /** 发了「新会话」的第一句后，等新会话出现在状态里再切过去。 */
+  let newSince = null;
+  const askedThread = new Set();
+  const openSteps = new Set();
+  let tailSig = '';
+  let listSig2 = '';
+  let fwTimer = 0;
   let lastFit = 0;
+  let lastDrag = -1;
+  const isFw = () => document.body.classList.contains('fw');
+  const isTop = m => !(m.depth > 0);
 
-  /** 1 = 迷你（最新回答 + 一行输入），其余 = 标准对话页。由宿主按窗口档位下发。 */
+  /** 宿主按窗口档位下发：1 迷你，其余按标准处理（3 档是 dsh 页面，不会走到这里）。 */
   function applyTier(n) {
     n = Number(n) === 1 ? 1 : 2;
     if (n === tier) return;
     tier = n;
-    document.body.classList.toggle('mini', n === 1);
-    document.body.classList.remove('plus-open');
-    if (!pendingImage) el('ask').placeholder = placeholderNow();
-    el('mini-answer').classList.remove('open');
-    miniSig = '';
+    const b = document.body.classList;
+    b.add('fw');
+    b.toggle('t1', n === 1);
+    b.toggle('t2', n === 2);
+    b.remove('plus-open');
+    el('tail').classList.remove('open');
+    tailSig = '';
+    listSig2 = '';
     lastFit = 0;
-    if (n === 1) {
-      renderMini(miniEmpty ? null : activeTask());
-    } else {
-      applyHeightTier();
-      const list = el('list');
-      list.scrollTop = list.scrollHeight;
-      post('resize', {});
-    }
+    lastDrag = -1;
+    if (!pendingImage) el('ask').placeholder = placeholderNow();
+    renderFw();
   }
 
-  /** 迷你档里只看一段纯文字：去掉代码块与 Markdown 记号，换行压成空格。 */
+  function currentTask() {
+    if (selectedId === 'new') return null;
+    if (selectedId) return state.tasks.find(t => t.id === selectedId) || null;
+    return fwEmpty ? null : activeTask();
+  }
+  function currentId() {
+    if (selectedId) return selectedId;
+    const t = currentTask();
+    return t ? t.id : '';
+  }
+
+  /** 迷你档的折叠视图：去掉代码块与 Markdown 记号，换行压成空格，读起来是连续的一段。 */
   function plainText(text) {
     return String(text == null ? '' : text)
       .replace(/```[\s\S]*?```/g, ' [代码] ')
@@ -1323,95 +1416,239 @@
       .replace(/\s+/g, ' ')
       .trim();
   }
+  // 插件给工具名带了「⚙ 」之类的前缀符号，图标已经有了，去掉
+  const stepName = m => (m.kind === 'think' ? '思考'
+    : String(m.title || '工具').replace(/^[^\p{L}\p{N}]+/u, '') || '工具');
 
-  /** 本轮的最新回答；还没回答时给最新的一步（思考 / 工具）。子代理的不算。 */
-  function latestOf(task) {
+  /** 本轮（最后一句提问之后）的消息下标范围。 */
+  function turnOf(task) {
     const msgs = task && Array.isArray(task.messages) ? task.messages : [];
-    const top = m => !(m.depth > 0);
     let lastUser = -1;
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].kind === 'user' && top(msgs[i])) { lastUser = i; break; }
+      if (msgs[i].kind === 'user' && isTop(msgs[i])) { lastUser = i; break; }
     }
-    for (let i = msgs.length - 1; i > lastUser; i--) {
+    return { msgs, lastUser };
+  }
+
+  /** 迷你档要显示的回答：本轮所有正文段连起来；本轮还没有就用最近一段。 */
+  function answerOf(task) {
+    const { msgs, lastUser } = turnOf(task);
+    const parts = [];
+    for (let i = lastUser + 1; i < msgs.length; i++) {
       const m = msgs[i];
-      if (m.kind === 'assistant' && top(m) && (m.text || m.title)) return { kind: 'answer', m };
+      if (m.kind === 'assistant' && isTop(m) && m.text) parts.push(String(m.text));
     }
-    if (task && !task.done) {
-      for (let i = msgs.length - 1; i > lastUser; i--) {
-        const m = msgs[i];
-        if ((m.kind === 'think' || m.kind === 'tool') && top(m)) return { kind: 'step', m };
-      }
-      return null;
-    }
+    if (parts.length) return parts.join('\n\n');
+    if (task && !task.done) return '';
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.kind === 'assistant' && top(m) && (m.text || m.title)) return { kind: 'answer', m };
+      if (m.kind === 'assistant' && isTop(m) && m.text) return String(m.text);
     }
-    return null;
+    return '';
   }
 
-  function paintMiniStatus(task, latest) {
-    const status = el('mini-status');
-    if (task && !task.done) {
-      status.textContent = '深度求索中' + (task.since ? '，用时 ' + fmtDuration(Date.now() - task.since) : '');
-    } else if (task) {
-      const at = latest && latest.m && latest.m.at ? formatTime(latest.m.at) : '';
-      status.textContent = (task.title || '最新回答') + (at ? ' · ' + at : '');
-    } else {
-      status.textContent = 'RCHA';
+  function tabRows() {
+    const rows = [];
+    const seen = new Set();
+    const named = new Map((state.threads || []).filter(t => t && t.title).map(t => [t.id, t.title]));
+    for (const t of state.tasks || []) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      rows.push({ id: t.id, title: t.title || named.get(t.id) || '', live: !t.done, updated: t.updated || 0 });
     }
+    for (const t of state.threads || []) {
+      if (!t || seen.has(t.id)) continue;
+      seen.add(t.id);
+      rows.push({ id: t.id, title: t.title || '', live: !!t.live, updated: t.updated || 0 });
+    }
+    rows.sort((a, b) => b.updated - a.updated);
+    return rows.slice(0, 10);
   }
 
-  function renderMini(task) {
-    if (!document.body.classList.contains('mini')) return;
+  function renderFwTabs() {
+    const box = el('fwtabs');
+    const rows = tabRows();
+    const cur = currentId();
+    const sig = rows.map(r => r.id + ':' + r.title + (r.live ? '!' : '')).join('|') + '#' + cur;
+    if (sig !== box.dataset.sig) {
+      box.dataset.sig = sig;
+      box.textContent = '';
+      for (const r of rows) {
+        const b = document.createElement('button');
+        b.className = 'fwtab' + (r.id === cur ? ' on' : '');
+        b.dataset.id = r.id;
+        b.title = r.title || '';
+        if (r.live) b.appendChild(document.createElement('i'));
+        const s = document.createElement('span');
+        s.textContent = r.title || ('会话 ' + String(r.id).slice(-4));
+        b.appendChild(s);
+        box.appendChild(b);
+      }
+      const add = document.createElement('button');
+      add.className = 'fwtab new' + (selectedId === 'new' ? ' on' : '');
+      add.dataset.id = 'new';
+      add.title = '新会话';
+      add.setAttribute('aria-label', '新会话');
+      add.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2.5V13.5"/><path d="M2.5 8H13.5"/></svg>';
+      box.appendChild(add);
+      const on = box.querySelector('.fwtab.on');
+      if (on) on.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    }
+    postDrag();
+  }
+
+  function selectTab(id) {
+    if (!id) return;
+    if (id !== 'new' && !state.tasks.some(t => t.id === id) && !askedThread.has(id)) {
+      askedThread.add(id);
+      post('thread', { session: id });
+    }
+    selectedId = id;
+    newSince = null;
+    el('tail').classList.remove('open');
+    tailSig = '';
+    listSig2 = '';
+    if (!pendingImage) el('ask').placeholder = placeholderNow();
+    renderFw();
+  }
+
+  /** 状态行：在跑的会话显示「深度求索中，用时 X · 当前这一步」。 */
+  function paintRunning(task) {
     const live = !!(task && !task.done);
-    document.body.classList.toggle('running', live);
-    const latest = latestOf(task);
-    paintMiniStatus(task, latest);
-    if (miniTimer) { clearInterval(miniTimer); miniTimer = 0; }
-    if (live) miniTimer = setInterval(() => paintMiniStatus(task, latest), 1000);
+    let cap = '';
+    if (selectedId === 'new') cap = newSince ? '正在新建会话…' : '新会话 · 发出第一句后创建';
+    else if (selectedId && !task) cap = '正在读取这个会话…';
+    else if (live) {
+      const { msgs, lastUser } = turnOf(task);
+      let step = null;
+      for (let i = msgs.length - 1; i > lastUser; i--) {
+        const m = msgs[i];
+        if (!isTop(m)) continue;
+        if (m.kind === 'assistant') break;
+        if (m.kind === 'think' || m.kind === 'tool') { step = m; break; }
+      }
+      cap = '深度求索中' + (task.since ? '，用时 ' + fmtDuration(Date.now() - task.since) : '');
+      // 标准档的列表里已经逐条列出步骤，状态行只留计时
+      if (step && tier === 1) cap += ' · ' + stepName(step) + (step.text ? ' ' + plainText(step.text).slice(0, 80) : '');
+    }
+    if (tier === 1) {
+      el('tail-step').textContent = cap;
+    } else {
+      const run = document.getElementById('m-run-text');
+      if (run) run.textContent = cap;
+    }
+  }
 
-    const box = el('mini-answer');
+  function renderTail(task) {
+    const box = el('tail');
+    const text = el('tail-text');
+    const live = !!(task && !task.done);
+    const answer = selectedId === 'new' ? '' : answerOf(task);
     const open = box.classList.contains('open');
-    const m = latest && latest.m;
-    const sig = (latest ? latest.kind + (m.at || 0) + ':' + String(m.text || m.title || '').length : '') + (open ? '#o' : '');
-    if (sig !== miniSig) {
-      miniSig = sig;
-      box.classList.toggle('step', !!latest && latest.kind === 'step');
-      if (!latest) {
-        box.textContent = '';
-        box.classList.remove('open');
-      } else if (latest.kind === 'step') {
-        const name = m.kind === 'think' ? '思考' : (m.title || '工具');
-        const text = plainText(m.text || '');
-        box.innerHTML = '<span class="k">' + escapeHtml(name) + '</span>' + (text ? ' · ' + escapeHtml(text) : '');
-      } else if (open) {
-        box.innerHTML = formatBody(m.text || m.title || '');
-        // 还在写就跟到最新一行；写完了从头读
-        box.scrollTop = live ? box.scrollHeight : 0;
-      } else {
-        box.textContent = plainText(m.text || m.title || '');
+    const sig = currentId() + '|' + answer.length + '|' + (open ? 1 : 0);
+    if (sig !== tailSig) {
+      const first = !tailSig.endsWith('|1') && open;
+      const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+      tailSig = sig;
+      if (open) text.innerHTML = formatBody(answer);
+      else text.textContent = plainText(answer);
+      box.classList.toggle('over', !open && text.scrollHeight > box.clientHeight + 1);
+      if (open) {
+        // 刚展开：在写就看最新一段，写完了从头读；展开后跟着写的只在本来就停在底部时继续贴底
+        if (first) box.scrollTop = live ? box.scrollHeight : 0;
+        else if (stick) box.scrollTop = box.scrollHeight;
       }
     }
+    paintRunning(task);
+  }
+
+  function toggleTail() {
+    if (tier !== 1) return;
+    const box = el('tail');
+    if (!el('tail-text').textContent) return;
+    box.classList.toggle('open');
+    renderTail(currentTask());
     postFit();
   }
 
-  function toggleMiniAnswer() {
-    const box = el('mini-answer');
-    if (!box.textContent) return;
-    box.classList.toggle('open');
-    miniSig = '';
-    renderMini(miniEmpty ? null : activeTask());
+  function stepKey(m) { return m.kind + ':' + (m.at || 0) + ':' + String(m.title || '').slice(0, 16); }
+
+  function renderList(task) {
+    const list = el('mlist');
+    const msgs = task && Array.isArray(task.messages) ? task.messages : [];
+    const sig = currentId() + '#' + msgs.map(m => (m.at || 0) + ':' + String(m.text || m.title || '').length + (m.failed ? 'f' : '')).join('|')
+      + '#' + (task && task.done ? 1 : 0) + '#' + [...openSteps].join(',') + '#' + (newSince ? 1 : 0);
+    if (sig === listSig2) { paintRunning(task); return; }
+    const first = !listSig2;
+    listSig2 = sig;
+    const stick = list.scrollTop + list.clientHeight >= list.scrollHeight - 12;
+    let html = '';
+    if (!msgs.length) {
+      html = '<div class="m-empty">' + (selectedId === 'new'
+        ? (newSince ? '正在新建会话…' : '新会话：在下面输入，发出第一句后创建')
+        : selectedId && !task ? '正在读取这个会话…'
+        : task ? '这个会话还没有消息' : '还没有会话，直接在下面提问') + '</div>';
+    }
+    for (const m of msgs) {
+      const sub = isTop(m) ? '' : ' sub';
+      if (m.kind === 'user') {
+        html += '<div class="m-user"><div>' + escapeHtml(m.text || m.title || '') + '</div></div>';
+      } else if (m.kind === 'assistant') {
+        html += '<div class="m-text' + sub + '">' + formatBody(m.text || m.title || '') + '</div>';
+      } else if (m.kind === 'think' || m.kind === 'tool') {
+        const key = stepKey(m);
+        const open = openSteps.has(key);
+        const body = String(m.text || '');
+        html += '<div class="m-step' + sub + (open ? ' open' : '') + (m.failed ? ' fail' : '') + '" data-k="' + escapeHtml(key) + '">'
+          + '<span class="ic">' + stepIcon(m) + '</span>'
+          + '<span class="tx"><b>' + escapeHtml(stepName(m)) + '</b>'
+          + (body ? ' · ' + escapeHtml(open ? body : plainText(body)) : '')
+          + (m.failed && m.code != null ? ' · 退出码 ' + escapeHtml(m.code) : '') + '</span></div>';
+      } else if (m.kind === 'note') {
+        html += '<div class="m-note">' + escapeHtml(m.text || m.title || '') + '</div>';
+      }
+    }
+    if (task && !task.done) html += '<div class="m-run"><i></i><span id="m-run-text"></span></div>';
+    list.innerHTML = html;
+    paintRunning(task);
+    if (first || stick) list.scrollTop = list.scrollHeight;
+  }
+
+  function renderFw() {
+    if (!isFw()) return;
+    if (newSince) {
+      const fresh = (state.tasks || []).find(t => !newSince.has(t.id));
+      if (fresh) { selectedId = fresh.id; newSince = null; }
+    }
+    const task = currentTask();
+    const live = !!(task && !task.done);
+    syncBusy(live);
+    refreshSendMode();
+    renderFwTabs();
+    if (tier === 1) renderTail(task); else renderList(task);
+    if (fwTimer) { clearInterval(fwTimer); fwTimer = 0; }
+    if (live || newSince) fwTimer = setInterval(() => paintRunning(currentTask()), 1000);
+    postFit();
   }
 
   /** 迷你档：把卡片的实际高度报给宿主，窗口贴着内容长短。 */
   function postFit() {
-    if (!document.body.classList.contains('mini')) return;
+    if (tier !== 1) return;
     requestAnimationFrame(() => {
       const h = Math.ceil(el('card').getBoundingClientRect().height);
       if (!h || Math.abs(h - lastFit) < 2) return;
       lastFit = h;
       post('fit', { h });
+    });
+  }
+
+  /** 标签右边的空白交给原生拖动区：标签自己能点、能左右滑。 */
+  function postDrag() {
+    requestAnimationFrame(() => {
+      const left = Math.ceil(el('fwtabs').getBoundingClientRect().right + 4);
+      if (left === lastDrag) return;
+      lastDrag = left;
+      post('dragzone', { left });
     });
   }
 
@@ -1421,7 +1658,7 @@
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      try { paintFrame(next || {}); } finally { renderMini(miniEmpty ? null : activeTask()); }
+      try { paintFrame(next || {}); } finally { renderFw(); }
     });
   }
 
@@ -1440,7 +1677,7 @@
       if (typeof v.notice === 'string' && v.notice) showNotice(v.notice, 7000);
       const threads = Array.isArray(v.threads) ? v.threads : (state.threads || []);
       state.threads = threads;
-      miniEmpty = !Array.isArray(v.tasks) || !v.tasks.length;
+      fwEmpty = !Array.isArray(v.tasks) || !v.tasks.length;
       if (!Array.isArray(v.tasks) || (!v.tasks.length && !threads.length)) {
         el('list').innerHTML =
           '<div class="empty-state">'
@@ -1786,6 +2023,25 @@
 
   /** 本地回显：先把用户这句放到列表里，等真实数据到达时整块重绘。 */
   function appendEcho(text, hasAttachment) {
+    if (isFw()) {
+      // 新布局：标准档先把这句放进列表（插件回写后会按真实消息重排）；迷你档看状态行
+      if (tier === 2) {
+        const row = document.createElement('div');
+        row.className = 'm-user';
+        const bubble = document.createElement('div');
+        bubble.textContent = text || (hasAttachment ? '（附件）' : '');
+        row.appendChild(bubble);
+        const list = el('mlist');
+        const empty = list.querySelector('.m-empty');
+        if (empty) empty.remove();
+        list.appendChild(row);
+        list.scrollTop = list.scrollHeight;
+        listSig2 = '';
+      } else {
+        el('tail-step').textContent = '已发送，等待回复…';
+      }
+      return;
+    }
     const list = el('list');
     const emptyState = list.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
@@ -1805,10 +2061,14 @@
     const file = pendingFile;
     if (!typed && !image && !file) return;
     const text = typed;
-    const task = activeTask();
+    const task = isFw() ? currentTask() : activeTask();
     // 状态可能还没送到（或只有旧的任务 id）：把最近一次已知的会话 id 带上，
     // 插件侧还会再按「最近活跃会话」兜底，所以空串也能投递。
-    const session = (task && task.id) || state.active || lastSession || '';
+    let session = (task && task.id) || (isFw() ? currentId() : '') || state.active || lastSession || '';
+    if (isFw() && selectedId === 'new') {
+      session = 'new';
+      newSince = new Set((state.tasks || []).map(t => t.id).concat((state.threads || []).map(t => t.id)));
+    }
     pendingImage = '';
     pendingFile = '';
     el('attach-bar').hidden = true;
@@ -1816,7 +2076,7 @@
     el('file-name').textContent = '';
     el('thumb-img').removeAttribute('src');
     el('ask').placeholder = placeholderNow();
-    try { el('ask').style.height = document.body.classList.contains('mini') ? '28px' : '36px'; } catch (_) {}
+    try { el('ask').style.height = isFw() ? '28px' : '36px'; } catch (_) {}
     document.body.classList.remove('plus-open');
     ask.value = '';
     ask.blur();
@@ -1843,7 +2103,7 @@
       sendText();
       return;
     }
-    const task = activeTask();
+    const task = isFw() ? currentTask() : activeTask();
     if (task && !task.done) {
       post('cancel', { session: task.id });
       return;
@@ -1859,14 +2119,36 @@
   });
   onTap(el('pick'), e => {
     e.stopPropagation();
-    if (document.body.classList.contains('mini')) {
+    if (isFw()) {
       document.body.classList.toggle('plus-open');
       return;
     }
     post('pickImage', {});
   });
   onTap(el('img'), e => { e.stopPropagation(); document.body.classList.remove('plus-open'); post('pickImage', {}); });
-  onTap(el('mini-answer'), e => { e.stopPropagation(); toggleMiniAnswer(); });
+  // 用 click 而不是 pointerup：滚动回答 / 列表时不该顺手把它收起来或展开一行
+  el('tail').addEventListener('click', e => { e.stopPropagation(); toggleTail(); });
+  el('mlist').addEventListener('click', e => {
+    const row = e.target.closest && e.target.closest('.m-step');
+    if (!row) return;
+    const key = row.dataset.k;
+    if (openSteps.has(key)) openSteps.delete(key); else openSteps.add(key);
+    renderList(currentTask());
+  });
+  // 标签：横滑是滚动，不算点
+  (function () {
+    const tabs = el('fwtabs');
+    let down = null;
+    tabs.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: e.target }; });
+    tabs.addEventListener('pointercancel', () => { down = null; });
+    tabs.addEventListener('pointerup', e => {
+      if (!down) return;
+      const moved = Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 8;
+      const btn = down.t && down.t.closest && down.t.closest('.fwtab');
+      down = null;
+      if (!moved && btn) selectTab(btn.dataset.id);
+    });
+  })();
   Object.keys(blocks).forEach(k => {
     onTap(el('sw-' + k), e => {
       e.stopPropagation();
@@ -2303,7 +2585,7 @@
   });
   function growAsk() {
     ask.style.height = 'auto';
-    const mini = document.body.classList.contains('mini');
+    const mini = isFw();
     ask.style.height = Math.min(mini ? 64 : 84, Math.max(mini ? 28 : 36, ask.scrollHeight)) + 'px';
     postFit();
     refreshSendMode();
