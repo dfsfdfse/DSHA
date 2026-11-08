@@ -2199,7 +2199,10 @@
   /** 标签右边的空白交给原生拖动区：标签自己能点、能左右滑。 */
   function postDrag() {
     requestAnimationFrame(() => {
-      const left = Math.ceil(el('fwnew').getBoundingClientRect().right + 4);
+      // 拖动带是原生透明 View，盖在哪就吃掉哪的点击。起点必须排在所有需要点击的
+      // 控件（＋ 新会话、≡ 会话列表）之后，只留计时那块当拖动区。
+      const anchor = el('fwlist') || el('fwnew');
+      const left = Math.ceil(anchor.getBoundingClientRect().right + 4);
       if (left === lastDrag) return;
       lastDrag = left;
       post('dragzone', { left });
