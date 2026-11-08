@@ -245,6 +245,7 @@ public final class HttpShellService {
     routes.put(BridgeRoutes.Route.PLUGINS, (s, r) -> s.appPlugins(r.path));
     routes.put(BridgeRoutes.Route.OVERLAY, (s, r) -> s.appOverlay(r.path));
     routes.put(BridgeRoutes.Route.FLOAT, (s, r) -> s.appFloat(r.path));
+    routes.put(BridgeRoutes.Route.FLOATWIN, (s, r) -> s.appFloatWin(r.path));
     routes.put(
         BridgeRoutes.Route.LOCATION,
         (s, r) -> DeviceSense.location(s.ctx, "1".equals(r.param("fresh", ""))));
@@ -1768,6 +1769,43 @@ public final class HttpShellService {
       return "ERROR: " + safeError(e);
     }
   }
+
+  /**
+   * /app/floatwin：通用 WebView 悬浮窗，可同时开多个。
+   *
+   * <p>参数：action=open|close|closeall|list、id、url、html、x、y、w、h、alpha（0-100）。
+   * html 走 data 加载，适合把 UI 稿直接悬浮出来对照。
+   */
+  private String appFloatWin(String path) {
+    try {
+      String q = queryOf(path);
+      String action = getParam(q, "action", "open");
+      if ("list".equals(action)) return com.deepseekharness.app.floatwin.FloatWebWindow.list();
+      if ("closeall".equals(action)) {
+        com.deepseekharness.app.floatwin.FloatWebWindow.closeAll();
+        return "OK";
+      }
+      if ("close".equals(action)) {
+        com.deepseekharness.app.floatwin.FloatWebWindow.close(getParam(q, "id", ""));
+        return "OK";
+      }
+      String id = getParam(q, "id", "");
+      String url = getParam(q, "url", "");
+      String html = getParam(q, "html", "");
+      if (url.isEmpty() && html.isEmpty()) return "NO_URL";
+      int x = intParam(q, "x", -1);
+      int y = intParam(q, "y", -1);
+      int w = intParam(q, "w", 0);
+      int h = intParam(q, "h", 0);
+      int alpha = intParam(q, "alpha", 100);
+      if (!OverlayController.permitted(ctx)) return "NO_PERMISSION";
+      com.deepseekharness.app.floatwin.FloatWebWindow.open(ctx, id, url, html, x, y, w, h, alpha);
+      return "OK " + (id.isEmpty() ? "" : id);
+    } catch (Throwable e) {
+      return "ERROR: " + safeError(e);
+    }
+  }
+
 
   /** /app/float：富内容悬浮窗（WebView 渲染 + JSON 消息桥）。 */
   private String appFloat(String path) {

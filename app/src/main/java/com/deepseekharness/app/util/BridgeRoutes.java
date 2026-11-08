@@ -35,6 +35,7 @@ public final class BridgeRoutes {
     PLUGINS(false),
     OVERLAY(false),
     FLOAT(false),
+    FLOATWIN(false),
     LOCATION(false),
     SENSORS(false),
     SENSOR(false),
@@ -88,6 +89,7 @@ public final class BridgeRoutes {
     add(routes, "/app/plugins", Route.PLUGINS);
     add(routes, "/app/overlay", Route.OVERLAY);
     add(routes, "/app/float", Route.FLOAT);
+    add(routes, "/app/floatwin", Route.FLOATWIN);
     add(routes, "/app/location", Route.LOCATION);
     add(routes, "/app/sensors", Route.SENSORS);
     add(routes, "/app/sensor", Route.SENSOR);
