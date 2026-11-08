@@ -608,6 +608,36 @@ async function openInApp(session) {
   }
 }
 
+/** 中文/阿拉伯数字 → 整数；取不到返回 0。 */
+function numberOf(text) {
+  const arabic = String(text).match(/\d+/)
+  if (arabic) return Number(arabic[0])
+  const cn = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+  const hit = String(text).match(/[一二两三四五六七八九十]/)
+  return hit ? (cn[hit[0]] || 0) : 0
+}
+
+/**
+ * 把用户嘴里说的「那个会话」解析成真实 id：完整 id、id 前缀、「最近/最新」、「倒数第 N 个」、
+ * 标题或 id 片段都认。语音转写常把「会话」写成「回话/绘画」之类，那是技能层的活，这里只管解析。
+ */
+function resolveSession(wanted, rows) {
+  const w = String(wanted || '').trim()
+  if (!w) return ''
+  const list = [...rows].sort((a, b) => (b.updated || 0) - (a.updated || 0))
+  if (!list.length) return ''
+  if (list.some(r => r.id === w)) return w
+  const byPrefix = list.find(r => r.id.startsWith(w))
+  if (byPrefix) return byPrefix.id
+  if (/最近|最新|latest|上一个|刚才|刚刚/.test(w)) return list[0].id
+  if (/倒数|第/.test(w)) {
+    const n = numberOf(w)
+    if (n >= 1 && n <= list.length) return list[n - 1].id
+  }
+  const byTitle = list.find(r => String(r.title || '').includes(w))
+  return byTitle ? byTitle.id : ''
+}
+
 /** 会话管理：语音说「删掉最近的会话」「打开昨天那个」「新建会话」都走这里。 */
 const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'delete']
 
@@ -631,7 +661,10 @@ async function sessionAdmin(args) {
   if (action === 'read') {
     if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）' }
     if (!queryApi) return { ok: false, count: 0, text: '会话查询服务不可用' }
-    const loaded = await queryApi.readSession(wanted)
+    const rows0 = await sessionRows()
+    const id0 = resolveSession(wanted, rows0)
+    if (!id0) return { ok: false, count: 0, text: `没找到对应「${wanted}」的会话，先 list 看一下` }
+    const loaded = await queryApi.readSession(id0)
     const events = Array.isArray(loaded?.events) ? loaded.events.slice(-260) : []
     const rows = []
     for (const event of events) {
@@ -651,24 +684,23 @@ async function sessionAdmin(args) {
     }
     const tail = rows.slice(-(Math.max(1, Math.min(40, Number(args?.limit) || 12))))
     if (!tail.length) return { ok: true, count: 0, text: '这个会话没有可读的对话记录。' }
+    const title0 = (rows0.find(r => r.id === id0) || {}).title || id0.slice(-8)
     return {
       ok: true,
       count: tail.length,
-      text: `会话 ${wanted} 最近 ${tail.length} 条：\n` + tail.map(r => `【${r.role}】${r.text}`).join('\n'),
+      text: `会话「${title0}」最近 ${tail.length} 条：\n` + tail.map(r => `【${r.role}】${r.text}`).join('\n'),
     }
   }
   if (action === 'open') {
+    if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先 list 查 id' }
+    if (wanted === 'new') return sessionAdmin({ action: 'new' })
     const rows = await sessionRows()
-    let id = wanted
-    if (!id) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先 list 查 id' }
-    if (id === 'new') return sessionAdmin({ action: 'new' })
+    const id = resolveSession(wanted, rows)
+    if (!id) return { ok: false, count: 0, text: `没找到对应「${wanted}」的会话，先 list 看一下` }
     const hit = rows.find(r => r.id === id)
-      || rows.find(r => r.id.startsWith(id))
-      || rows.find(r => String(r.title || '').includes(id))
-    if (hit) id = hit.id
     const ok = await openInApp(id)
     return ok
-      ? { ok: true, count: 1, text: `已打开会话 ${hit ? (hit.title || id.slice(-8)) : id.slice(-8)}（${id}）` }
+      ? { ok: true, count: 1, text: `已打开会话「${hit ? (hit.title || id.slice(-8)) : id.slice(-8)}」` }
       : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
   }
   if (action === 'new') {
@@ -679,6 +711,19 @@ async function sessionAdmin(args) {
   }
   if (action === 'delete') {
     if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先用 list 查' }
+    {
+      const rowsD = await sessionRows()
+      const resolved = resolveSession(wanted, rowsD)
+      if (resolved && resolved !== wanted) {
+        const hit = rowsD.find(r => r.id === resolved)
+        return {
+          ok: false,
+          count: 0,
+          text: `「${wanted}」指向会话「${hit ? (hit.title || resolved.slice(-8)) : resolved.slice(-8)}」（${resolved}）。`
+            + '删除请用这个完整 session 再调一次并带 confirm:true；先向用户复述标题让其确认。',
+        }
+      }
+    }
     if (args?.confirm !== true) {
       return { ok: false, count: 0, text: `要删除会话 ${wanted} 需要把 confirm 设为 true；删除会移进回收站，可人工恢复` }
     }
@@ -760,21 +805,47 @@ function registerSessionSkill(ctx) {
     return ctx.skills.register({
       name: 'rcha-voice-sessions',
       description: '用语音（或文字）查询、打开、新建、删除 RCHA 的会话与聊天记录。',
+      source: 'builtin:dsh-status-overlay/rcha-voice-sessions',
       content: [
         '# 语音/文字管理会话',
         '',
-        '用户可能通过悬浮窗语音说这类话，转写文本会有错字，先按意图理解再执行：',
+        '用户的输入多半来自悬浮窗语音转写，错字很多。先按意图理解，再调用 `rcha_session_admin`。',
         '',
-        '- 「有哪些会话 / 最近聊了什么」→ `rcha_session_admin` `{action:"list"}`；需要看内容再 `{action:"read", session:"<id>"}`。',
-        '- 「打开 X 那个会话」→ 先 `list` 找到准确 id，再 `{action:"open", session:"<id>"}`；不要臆造 id。',
-        '- 「新建会话 / 开个新的」→ `{action:"new"}`。',
-        '- 「删掉 X 会话」→ 先 `list` 确认是哪一个，向用户复述标题与时间，得到确认后再 `{action:"delete", session:"<id>", confirm:true}`。删除是移到 /root/.dsh/session-trash，可人工恢复，但不要批量删、不要删当前正在用的会话。',
+        '## 一、同义与同音对照（出现左边任一写法，都按右边的意思处理）',
         '',
-        '规则：',
-        '1. 会话 id 只从 `list` 的结果里取，取尾部 8 位也能用。',
-        '2. 删除不可默认执行，必须用户明确说要删、且确认对象正确。',
-        '3. 用户只是聊天（比如「帮我写个函数」）时不要调用这些动作。',
-        '4. 动作完成后用一句中文口语回报结果，不要贴原始 JSON。',
+        '**重要：这个软件里「会话」和「聊天记录」是同一件事。** 用户嘴里说会话、聊天记录、记录、历史、',
+        '对话、谈话、聊过的东西，指的都是同一套能力（`rcha_session_admin`），没有第二套工具，也不用追问到底是哪个。',
+        '',
+        '| 真实意图 | 转写里可能长这样 |',
+        '| --- | --- |',
+        '| 会话（= 聊天记录 = 历史对话） | 聊天记录、聊天纪绿、聊田记录、缭天记录、记录、历史、对话、谈话、回话、绘画、绘话、会画、汇话、灰话、惠话、会社、灰化、慧话、话题 |',
+        '| 新建 / 新增 | 心建、欣建、新见、心开、重开 |',
+        '| 打开 | 打尔、打看、大凯、达开、跳转 |',
+        '| 删除 | 扇除、山除、删出、衫除、珊除、干掉、清掉 |',
+        '| 查询 / 查看 | 查寻、插询、质询、看看、念念 |',
+        '| 最近 | 罪近、最进、刚才、刚刚、上一个 |',
+        '| 倒数第三 / 第二个 | 倒数第散、到数第儿、第两个 |',
+        '',
+        '只要句子里出现上表的错字，且上下文是在说对话/聊天/记录，就当作用户在说「会话」，不要反问「绘画是什么意思」，',
+        '也不要问「你是指会话还是聊天记录」——它们是同一件事，直接按会话能力处理。',
+        '',
+        '## 二、意图 → 动作',
+        '',
+        '- 「有哪些回话 / 最近的绘画 / 我的聊天记录」→ `{action:"list"}`；要看内容再说 `{action:"read", session:"<id>"}`。',
+        '- 「把昨天那个绘话的记录念给我听」→ `{action:"read", session:"最近"}`（或先 list 定位再 read）。',
+        '- 「打开那个关于 X 的绘话」→ 先 `list` 找到 id，再 `{action:"open", session:"<id 或标题片段>"}`。',
+        '- 「打开最近那个 / 倒数第二个回话」→ `{action:"open", session:"最近"}` 或 `session:"倒数第2个"`，工具会自己按时间排序解析。',
+        '- 「开个新的 / 心建一个」→ `{action:"new"}`。',
+        '- 「把最近那个删了」→ 先用 `session:"最近"` 调 `delete`，工具会回一条「指向哪个会话」，把标题和时间复述给用户，得到确认后再带完整 id 和 `confirm:true` 调一次。',
+        '',
+        '## 三、硬规则',
+        '',
+        '1. id 只从 `list` 结果或工具返回里取，不要编；`list` 里显示的是 uuid 尾号，取尾部也能用。',
+        '2. 删除必须先复述对象、等用户明确同意；一次只删一个；正在运行的会话不删。',
+        '3. 用户只是在正常聊天（「帮我写个函数」「这个 bug 怎么修」）时，不要调用这些动作。',
+        '4. 转写明显残缺（比如只剩「那个」）时，先 `list` 再问一句「你说的是不是 X」，不要瞎猜着开或删。',
+        '5. 做完用一句口语中文回报，例如「打开了「修 git push 失败」那个会话」；不要贴 JSON、不要贴 uuid。',
+        '6. 用户说的数字口语化（第两个、倒数第散个）也照上表归一成阿拉伯数字理解。',
       ].join('\n'),
     })
   } catch {
