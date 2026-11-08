@@ -142,6 +142,7 @@
   }
   #count[hidden] { display: none; }
 
+  #tabrow[hidden] { display: none; }
   #tabrow {
     flex: 0 0 auto;
     display: flex; align-items: flex-end; gap: 10px;
@@ -477,6 +478,7 @@
 
   /* 目标条：dsh GoalBar.module.css（36 高、gap 10、menu 底、13px 标签/目标） */
   #goalbar {
+    position: relative;
     flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
     height: 36px; margin: 6px 0 0; padding: 0 8px 0 10px;
     border-radius: 12px;
@@ -484,6 +486,11 @@
     border: 0.5px solid var(--line-soft);
   }
   #goalbar[hidden] { display: none; }
+  #goalbar::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -20px; height: 20px;
+    background: linear-gradient(to bottom, rgba(var(--bg-rgb), 0), rgba(var(--bg-rgb), 1));
+    pointer-events: none;
+  }
   #goalbar .gglyph { display: inline-flex; flex: none; color: var(--muted); }
   #goalbar .gglyph svg { width: 16px; height: 16px; }
   #goalbar .glabel {
@@ -1213,8 +1220,12 @@
           + '</div>';
         syncBusy(false);
         if (el('goalbar')) el('goalbar').hidden = true;
+        const phEmpty = el('perm-head'); if (phEmpty) phEmpty.hidden = true;
+        const pcEmpty = el('perm'); if (pcEmpty) pcEmpty.hidden = true;
+        const mtEmpty = el('meter'); if (mtEmpty) mtEmpty.hidden = true;
+        const trEmpty = el('tabrow'); if (trEmpty) trEmpty.hidden = true;
         el('compose').classList.toggle('compact', el('compose').clientWidth > 0 && el('compose').clientWidth < 460);
-      applyHeightTier();
+        applyHeightTier();
         if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
         refreshSendMode();
         el('tabs').hidden = true;
@@ -1229,6 +1240,7 @@
         threads,
       };
       syncBusy(state.tasks.some(t => !t.done));
+      const tr = el('tabrow'); if (tr) tr.hidden = false;
       renderTabs();
 
       const task = activeTask();
