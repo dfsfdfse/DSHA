@@ -5,43 +5,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RCHA</title>
 <style>
+  /* 令牌数值对齐 dsh：ui-theme/src/styles/design-platform.css + base.css */
   :root {
     --bg-rgb: 255, 255, 255;
     --alpha: .97;
-    --fg: #17181c;
-    --muted: rgba(23, 24, 28, .52);
-    --line: rgba(0, 0, 0, .08);
-    --accent: #3f7dfb;
+    --fg: rgb(15, 17, 21);            /* --dsw-alias-label-primary */
+    --muted: rgb(97, 102, 107);        /* --dsw-alias-label-secondary */
+    --tertiary: rgb(129, 133, 140);    /* --dsw-alias-label-tertiary */
+    --caption: rgb(173, 178, 184);     /* --dsw-alias-label-caption */
+    --line: rgba(0, 0, 0, .10);        /* --dsw-alias-border-l2 */
+    --line-strong: rgba(0, 0, 0, .12); /* --dsw-alias-border-l3 */
+    --accent: rgb(65, 118, 230);       /* --dsw-alias-button-info-fill */
+    --field: #fff;                     /* --dsw-specific-input-major */
+    --selector: rgb(245, 246, 247);    /* --dsw-specific-selector */
     --danger: #ff6b5e;
     --ok: #46c37b;
+    --font: var(--dsh-font, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue',
+      Arial, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif);
+    --fs-content: 14px;                /* --dsh-content-font-size */
+    --lh-content: 24px;
+    --fs-secondary: 13px;              /* --dsh-content-font-size-secondary */
+    /* 上下文分段色：system=bluish-400 / tools=violet-400 / messages=blue-450 */
+    --meter-sys: rgb(173, 178, 184);
+    --meter-tools: rgb(167, 139, 250);
+    --meter-msg: rgb(77, 147, 248);
   }
   body.dark {
     --bg-rgb: 22, 25, 31;
-    --fg: #F2F4F8;
-    --muted: rgba(242,244,248,.55);
-    --line: rgba(255,255,255,.10);
-    --accent: #6f9bff;
+    --fg: rgb(249, 250, 251);
+    --muted: rgb(207, 211, 214);
+    --tertiary: rgb(173, 178, 184);
+    --caption: rgb(129, 133, 140);
+    --line: rgba(255, 255, 255, .12);
+    --line-strong: rgba(255, 255, 255, .16);
+    --accent: rgb(122, 170, 255);
+    --field: rgb(44, 44, 46);
+    --selector: rgb(53, 54, 56);
   }
-  body.dark #compose { background: #1b1f26; border-color: rgba(255,255,255,.07); }
-  body.dark #usage-card, body.dark #model-menu { background: #1b1f26; border-color: rgba(255,255,255,.09); }
-  body.dark .tab { background: #1b1f26; }
-  body.dark .round { background: rgba(255,255,255,.08); color: #E9ECF2; }
-  body.dark .round.ghost { background: transparent; }
-  body.dark .round.primary { background: #3f7dfb; }
-  body.dark .round.ghost, body.dark #model { color: #C8CDD6; }
-  body.dark .thumb, body.dark .file-chip { background: #22272f; border-color: rgba(255,255,255,.08); }
-  body.dark .file-chip span { color: #E9ECF2; }
-  body.dark #ask { color: #F2F4F8; }
-  body.dark .msg-body code, body.dark .msg-body .path { background: rgba(255,255,255,.08); color: #D8DEE8; }
-  body.dark .msg-body .url { background: rgba(111,155,255,.14); color: #8fb2ff; }
-  body.dark .msg-time { color: rgba(242,244,248,.42); }
-  body.dark .uhead b, body.dark .urow b { color: #F2F4F8; }
+  /* 深色只需要补那些没有 token 的地方；窗口/卡片/按钮的颜色都由变量决定 */
+  body.dark .tab { background: var(--selector); }
+  body.dark .thumb, body.dark .file-chip { background: var(--selector); }
+  body.dark .msg-body code, body.dark .msg-body .path {
+    background: rgba(255,255,255,.08); color: rgb(216,222,232);
+  }
+  body.dark .msg-body .url { background: rgba(111,155,255,.14); color: rgb(143,178,255); }
+  body.dark #usage-card { background: var(--field); }
   body.dark .empty-state span { color: rgba(242,244,248,.45); }
   body.dark .empty-state .ico { background: rgba(111,155,255,.14); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: transparent; }
   body {
-    font: 13px/1.5 -apple-system, "system-ui", "Segoe UI", Roboto, sans-serif;
+    /* dsh 的正文字阶：14/24，触屏输入框抬到 16px 防缩放 */
+    font-family: var(--font);
+    font-size: var(--fs-content);
+    line-height: var(--lh-content);
     color: var(--fg);
     -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -147,7 +164,7 @@
   body.dark .msg.user { background: rgba(111,155,255,.10); }
   .msg-title {
     flex: 1 1 auto; min-width: 0;
-    font-size: 12.5px; line-height: 18px; color: var(--fg);
+    font-size: var(--fs-secondary); line-height: 18px; color: var(--fg);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; word-break: break-word;
   }
@@ -159,13 +176,13 @@
   .msg.open .msg-chev { transform: rotate(180deg); }
   .msg-time {
     flex: 0 0 auto; align-self: flex-start; margin-top: 2px;
-    font-size: 10px; color: rgba(23,24,28,.38); font-variant-numeric: tabular-nums;
+    font-size: 12px; color: var(--caption); font-variant-numeric: tabular-nums;
   }
   /* 正文默认就显示：dsh 那边是直接读回复，不是先看一行标题再点开 */
   .msg-body {
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6;
     overflow: hidden;
-    font-size: 12.5px; line-height: 18px; color: var(--fg);
+    font-size: var(--fs-content); line-height: var(--lh-content); color: var(--fg);
     white-space: pre-wrap; word-break: break-word;
     padding: 0 0 8px 12px;
   }
@@ -185,25 +202,25 @@
   .msg.think .msg-body { color: var(--muted); font-style: italic; }
   /* 一轮结束的用时行：居中、细小，不抢内容 */
   .msg.note { border-bottom: none; padding: 2px 0 6px; text-align: center; }
-  .msg-note { font-size: 10.5px; color: var(--muted); letter-spacing: .2px; }
+  .msg-note { font-size: 12px; color: var(--tertiary); }
   .msg.open .msg-body {
     display: block; -webkit-line-clamp: unset; max-height: 42vh; overflow-y: auto;
   }
   /* 正文里的 Markdown 基本样式，和 dsh 的阅读效果对齐 */
   .msg-body b { font-weight: 600; }
   .msg-body em { font-style: italic; }
-  .msg-body .md-h { font-weight: 600; font-size: 13px; margin: 2px 0; }
+  .msg-body .md-h { font-weight: 600; font-size: 14px; margin: 2px 0; }
   .msg-body ul { margin: 2px 0 2px 14px; padding: 0; }
   .msg-body li { list-style: disc; margin: 1px 0; }
   .msg-body pre {
-    margin: 4px 0; padding: 6px 8px; border-radius: 4px; overflow-x: auto;
-    background: rgba(0,0,0,.045); font-size: 11px; line-height: 16px;
+    margin: 4px 0; padding: 8px 10px; border-radius: 8px; overflow-x: auto;
+    background: var(--selector); font-size: 12px; line-height: 18px;
   }
   .msg-body pre code { background: transparent; padding: 0; font-size: 11px; }
   body.dark .msg-body pre { background: rgba(255,255,255,.06); }
   .msg-body::-webkit-scrollbar-thumb { border-radius: 2px; }
   .msg-body code, .msg-body .path, .msg-body .url {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
     background: rgba(0,0,0,.05); border-radius: 4px; padding: 1px 4px; color: #2b2f36;
   }
   .msg-body .url { color: #3f7dfb; background: rgba(63,125,251,.08); }
@@ -236,35 +253,61 @@
   #usage-fill { display: block; height: 100%; width: 0; background: #4c8dff; }
 
   /* 卡片：绝对定位浮在输入栏上方，样式对齐 dsh 的上下文弹层 */
+  /* 上下文面板：照 dsh ContextMeter.module.css（264 宽、padding 12、radius lg、12px） */
   #usage-card {
-    position: absolute; left: 10px; right: 10px; bottom: 104px; z-index: 5;
-    background: #ffffff;
-    border: 1px solid rgba(0,0,0,.06); border-radius: 6px;
-    padding: 8px 10px 6px;
-    box-shadow: 0 12px 34px rgba(0,0,0,.16);
+    position: absolute; left: 10px; right: auto; bottom: 104px; z-index: 5;
+    box-sizing: border-box; width: min(264px, calc(100% - 20px));
+    padding: 12px; border-radius: 16px;
+    background: var(--field);
+    border: 1px solid var(--line);
+    box-shadow: 0 12px 30px rgba(0,0,0,.16);
+    font-size: 12px; line-height: 18px; color: var(--fg);
   }
   #usage-card[hidden] { display: none; }
-  .uhead { display: flex; align-items: baseline; gap: 8px; color: var(--fg); }
-  .uhead span { flex: 1 1 auto; font-size: 12px; color: var(--muted); }
-  .uhead b { font-size: 16px; font-weight: 600; color: var(--fg); }
-  .uhead span { font-size: 14px; }
-  #usage-card.warn .uhead b { color: #ffcf7a; }
+  .uhead { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .uhead span { color: var(--muted); }
+  .uhead b { font-size: 14px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .uhead em { margin-left: auto; font-style: normal; color: var(--caption); font-variant-numeric: tabular-nums; }
+  .ubar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 8px 0 10px;
+    background: var(--selector); }
+  .ubar i { display: block; height: 100%; min-width: 2px; }
+  .ubar .sys, .urow i.sys { background: var(--meter-sys); }
+  .ubar .tools, .urow i.tools { background: var(--meter-tools); }
+  .ubar .msg, .urow i.msg { background: var(--meter-msg); }
+  .urow { display: flex; align-items: center; gap: 8px; padding: 2px 0; color: var(--muted); }
+  .urow i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+  .urow span { flex: 1 1 auto; }
+  .urow b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
+  #u-hint { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line);
+    font-size: 11px; color: #d98324; }
+  #u-hint[hidden] { display: none; }
   #usage-card.warn .ubar .msg { background: #ffcf7a; }
   #usage-card.danger .uhead b { color: #ff6b5e; }
-  #usage-card.danger .ubar .msg { background: #ff6b5e; }
-  #usage-card.danger .urow i.msg { background: #ff6b5e; }
-  .uhead em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .ubar { display: flex; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0 9px; background: rgba(255,255,255,.08); }
-  .ubar i { display: block; height: 100%; }
-  .ubar .sys { background: #9aa4b2; } .ubar .tools { background: #b48cff; } .ubar .msg { background: #4c8dff; }
-  .urow { display: flex; align-items: center; gap: 7px; padding: 2px 0; font-size: 11px; color: var(--muted); }
-  .urow i { width: 9px; height: 9px; border-radius: 2px; }
-  .urow i.sys { background: #9aa4b2; } .urow i.tools { background: #b48cff; } .urow i.msg { background: #4c8dff; }
-  .urow span { flex: 1 1 auto; }
-  #u-hint { margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(0,0,0,.08);
-    font-size: 11px; color: #d98324; line-height: 1.5; }
-  #u-hint[hidden] { display: none; }
-  .urow b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
+  #usage-card.danger .ubar i { background: #ff6b5e; }
+
+  /* 输入栏下方的 dock：ring 用量 + 会话统计（dsh InputBar .dock + ContextMeter） */
+  #dock {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 4px 2px 0;
+  }
+  #meter {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    padding: 1px 8px; border: none; border-radius: 8px; background: transparent;
+    color: var(--tertiary); font-family: inherit; font-size: var(--fs-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  #meter[hidden] { display: none; }
+  #meter[aria-expanded='true'] { background: var(--selector); color: var(--muted); }
+  #stats {
+    flex: 1 1 auto; display: flex; gap: 10px; justify-content: flex-end;
+    font-size: 12px; color: var(--tertiary); font-variant-numeric: tabular-nums;
+  }
+  #stats[hidden] { display: none; }
+
+  /* ≡ 菜单的三个区块开关（宿主也会用 applyConfig 下发同样的类名） */
+  body.hide-tabs #tabs { display: none !important; }
+  body.hide-usage #usage-card, body.hide-usage #stats { display: none !important; }
+  body.hide-compose #compose { display: none !important; }
 
   /* 附件预览：圆角缩略图 + 右上角移除，参照 dsh 的附件卡片 */
   #attach-bar { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 6px; }
@@ -298,53 +341,71 @@
     .round { width: 28px; height: 28px; }
   }
 
-  /* 输入栏：对齐 dsh 底部聊天框（圆角容器 + 左侧圆钮 + 模型胶囊 + 右侧功能钮） */
+  /* 输入栏：照 dsh InputBar（ui-conversation/src/client/skeleton/InputBar.module.css）
+     card: padding-top 8 + gap 12；row: gap 12(窄卡 8)、padding 2px 8px 6px */
   #compose {
-    flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px;
-    margin-top: 8px; padding: 12px 16px 10px;
-    background: #f4f5f7;
-    border: 1px solid rgba(0,0,0,.05);
-    border-radius: 6px;
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px;
+    margin-top: 8px; padding: 8px 0 0;
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: var(--fs-content);
+    line-height: var(--lh-content);
   }
-  #compose .row { display: flex; align-items: center; gap: 11px; }
+  #compose .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 8px 6px;
+  }
   .round svg, #model svg { stroke: currentColor; fill: none;
     stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  /* add 圆钮：28×28、selector 底、14px 图标（InputBar .add） */
   .round {
-    flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 6px;
-    background: rgba(0,0,0,.06); color: var(--fg);
-    display: flex; align-items: center; justify-content: center; padding: 0; font-size: 13px;
+    flex: 0 0 auto; width: 28px; height: 28px; border: none; border-radius: 999px;
+    background: var(--selector); color: var(--fg);
+    display: grid; place-items: center; padding: 0;
   }
-  .round.primary { background: #3f7dfb; color: #fff; }
-  .round.ghost { background: transparent; color: #4a4d55; }
-  .round.tight { width: auto; height: 30px; padding: 0 2px; gap: 2px; }
-  .round.tight .chev { width: 10px; height: 10px; opacity: .7; }
-  .round.tight svg:first-child { width: 16px; height: 16px; }
-  /* 圆柱体是闭合图形，同样 16px 看起来更重：单独收小一号 */
-  #db svg:first-child { width: 13.5px; height: 13.5px; stroke-width: 1.6; }
-  #db .chev { width: 9px; height: 9px; }
+  .round.flat { background: transparent; color: var(--muted); }
   .round svg { width: 16px; height: 16px; display: block; }
-  .round.primary svg { width: 16px; height: 16px; }
+  #pick svg { width: 14px; height: 14px; }
+  #pick svg path { stroke-width: 1.3; }   /* ICON_MEDIUM_STROKE */
+  #mic svg path, #mic svg rect { stroke-width: 1.3; }
+  #attach svg path { stroke-width: 1.3; }
+  /* send 圆钮：34×34、button-info-fill、16px 实心箭头（InputBar .primary） */
+  #send {
+    width: 34px; height: 34px; border: none; border-radius: 999px;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center; padding: 0; flex: 0 0 auto;
+  }
+  #send svg { width: 16px; height: 16px; display: block; }
   #ring { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 12px;
-    border: 2px solid #cfd3da; border-left-color: #4c8dff; }
+    border: 2px solid var(--line-strong); border-left-color: var(--accent); }
   #ring[hidden] { display: none; }
   body.busy #send svg { display: none; }
-  body.busy #send::after { content: ''; display: block; width: 11px; height: 11px;
-    border-radius: 3px; background: #fff; }
+  /* 停止：16 viewBox 里 10×10、rx 3（InputBar primaryStops 的矩形） */
+  body.busy #send::after { content: ''; display: block; width: 10px; height: 10px;
+    border-radius: 3px; background: currentColor; }
   #ask {
-    width: 100%; min-height: 22px; max-height: 88px; resize: none; overflow-y: auto;
+    width: 100%; min-height: 36px; max-height: 88px; resize: none; overflow-y: auto;
     background: transparent; border: none; outline: none;
-    color: var(--fg); font-size: 13.5px; line-height: 20px; padding: 2px 2px 4px;
+    color: var(--fg);
+    /* 触屏用 16px，避免 WebView 聚焦时自动缩放（InputBar 的 pointer:coarse 规则） */
+    font-size: 16px; line-height: var(--lh-content);
+    padding: 4px 8px 0 14px;
     font-family: inherit;
   }
   #ask::placeholder { color: #9aa0a6; }
   #ask::placeholder { color: var(--muted); }
   #model {
-    flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
-    height: 30px; padding: 0; border: none; background: transparent; color: #4a4d55;
+    flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+    height: 28px; padding: 0 4px 0 8px; border: none; border-radius: 8px;
+    background: transparent; color: var(--muted); font-size: var(--fs-secondary);
+    font-family: inherit;
   }
-  #model b { display: none; }
-  #model svg.shield { width: 16px; height: 16px; }
-  #model svg.chev { width: 10px; height: 10px; opacity: .7; }
+  #model .name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 132px;
+  }
+  #model svg.chev { width: 12px; height: 12px; color: var(--caption); }
   #compose .sep { width: 1px; height: 18px; background: rgba(255,255,255,.10); flex: 0 0 auto; }
 
   #send:disabled { opacity: .4; }
@@ -363,6 +424,11 @@
     font-variant-numeric: tabular-nums;
   }
   #stats[hidden] { display: none; }
+
+  /* ≡ 菜单的三个区块开关（宿主也会用 applyConfig 下发同样的类名） */
+  body.hide-tabs #tabs { display: none !important; }
+  body.hide-usage #usage-card, body.hide-usage #stats { display: none !important; }
+  body.hide-compose #compose { display: none !important; }
   #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
@@ -417,36 +483,40 @@
     <div class="file-chip" id="file-chip" hidden><span id="file-name"></span><button id="file-x">×</button></div>
   </div>
   <div id="compose">
-    <textarea id="ask" rows="1" placeholder="发消息…" autocomplete="off"></textarea>
+    <textarea id="ask" rows="1" placeholder="发消息或创建任务, / 调用指令, @ 文件或对话" autocomplete="off"></textarea>
     <div class="row">
-    <button class="round" id="pick" title="图片" aria-label="图片">
-      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
-    <button id="model" title="模型">
-      <b>标准模式</b>
-      <svg class="shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M12 8v4M12 15v.5"/></svg>
-      <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-    </button>
-    <button class="round ghost" id="attach" title="附件" aria-label="附件">
-      <svg viewBox="0 0 24 24"><path d="M9 12l6.5-6.5a4 4 0 015.5 5.5L10 22a5.5 5.5 0 01-7.8-7.8L13 3.4"/></svg>
-    </button>
-    <span style="flex:1 1 auto"></span>
-    <button class="round ghost tight" id="db" title="上下文用量" aria-label="上下文用量">
-      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>
-      <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-    </button>
-    <button class="round ghost" id="mic" title="语音" aria-label="语音">
-      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>
-    </button>
-    <span id="ring" hidden></span>
-    <button class="round primary" id="send" title="发送" aria-label="发送">
-      <svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
-    </button>
+      <button class="round" id="pick" title="添加文件或调用指令" aria-label="添加文件或调用指令">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2V14"/><path d="M2 8H14"/></svg>
+      </button>
+      <button class="round flat" id="attach" title="文件" aria-label="文件">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M12.75 4.5V9.5C12.75 10.7598 12.2496 11.968 11.3588 12.8588C10.468 13.7496 9.25978 14.25 8 14.25C6.74022 14.25 5.53204 13.7496 4.64124 12.8588C3.75045 11.968 3.25 10.7598 3.25 9.5V5C3.25 4.13805 3.59241 3.3114 4.2019 2.7019C4.8114 2.09241 5.63805 1.75 6.5 1.75C7.36195 1.75 8.1886 2.09241 8.7981 2.7019C9.40759 3.3114 9.75 4.13805 9.75 5V9.5C9.75 9.96413 9.56563 10.4092 9.23744 10.7374C8.90925 11.0656 8.46413 11.25 8 11.25C7.53587 11.25 7.09075 11.0656 6.76256 10.7374C6.43437 10.4092 6.25 9.96413 6.25 9.5V5.5"/></svg>
+      </button>
+      <span style="flex:1 1 auto"></span>
+      <button id="model" title="模型">
+        <span class="name" id="model-name">模型</span>
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>
+      </button>
+      <button class="round flat" id="mic" title="语音" aria-label="语音">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.15" y="1.65" width="5.7" height="8.7" rx="2.85"/><path d="M2.35 8.675C3.075 11.3 5.2 13.125 8 13.125C10.8 13.125 12.925 11.3 13.65 8.675M8 13.125V15"/></svg>
+      </button>
+      <span id="ring" hidden></span>
+      <button id="send" title="发送消息" aria-label="发送消息">
+        <svg viewBox="0 0 16 16"><path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor"/></svg>
+      </button>
     </div>
   </div>
-  <div id="stats" hidden>
-    <span id="st-left"></span>
-    <span id="st-right"></span>
+  <div id="dock">
+    <button id="meter" hidden aria-haspopup="dialog" aria-label="上下文已用 0%">
+      <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
+        <circle id="meter-track" cx="7" cy="7" r="5.5" fill="none" stroke="var(--line-strong)" stroke-width="2"/>
+        <circle id="meter-fill" cx="7" cy="7" r="5.5" fill="none" stroke="var(--tertiary)" stroke-width="2" stroke-linecap="round" transform="rotate(-90 7 7)"/>
+      </svg>
+      <span id="meter-pct">0%</span>
+    </button>
+    <div id="stats" hidden>
+      <span id="st-left"></span>
+      <span id="st-right"></span>
+    </div>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
@@ -515,7 +585,8 @@
     const stop = running && !hasContent();
     document.body.classList.toggle('busy', stop);
     const btn = el('send');
-    const label = stop ? '停止' : '发送';
+    // dsh 文案：input.send='发送消息' / input.stop='停止生成'
+    const label = stop ? '停止生成' : '发送消息';
     btn.title = label;
     btn.setAttribute('aria-label', label);
   }
@@ -537,6 +608,9 @@
     const menu = el('model-menu');
     if (menu && !menu.hidden) placeModelMenu();
   }
+
+  /** dsh 原文：conversation.placeholder.default */
+  const PLACEHOLDER = '发消息或创建任务, / 调用指令, @ 文件或对话';
 
   let pendingImage = '';
   let pendingFile = '';
@@ -636,11 +710,22 @@
   }
 
   function renderUsage(usage) {
+    const meter = el('meter');
     if (!usage || !Number.isFinite(usage.used) || !Number.isFinite(usage.window) || usage.window <= 0) {
       el('usage-card').hidden = true;
+      if (meter) meter.hidden = true;
       return;
     }
     const pct = Math.min(100, Math.round((usage.used / usage.window) * 100));
+    // dsh 的 ContextMeter：14px 圆环（r=5.5, stroke 2）+ 百分比
+    if (meter) {
+      meter.hidden = false;
+      const circumference = 2 * Math.PI * 5.5;
+      el('meter-fill').setAttribute('stroke-dasharray',
+        (circumference * pct / 100).toFixed(2) + ' ' + circumference.toFixed(2));
+      el('meter-pct').textContent = pct + '%';
+      meter.setAttribute('aria-label', '上下文已用 ' + pct + '%');
+    }
     el('u-pct').textContent = pct + '%';
     const card = el('usage-card');
     card.classList.toggle('warn', pct >= 75 && pct < 90);
@@ -746,7 +831,7 @@
         el('attach-bar').hidden = true;
         el('thumb-img').removeAttribute('src');
         el('thumb-img').parentElement.classList.remove('empty');
-        el('ask').placeholder = '问点什么…';
+        el('ask').placeholder = PLACEHOLDER;
       }
       post('focus', { value: true });
       refreshSendMode();
@@ -780,7 +865,7 @@
       if (!Array.isArray(v.tasks) || (!v.tasks.length && !threads.length)) {
         el('list').innerHTML =
           '<div class="empty-state">'
-          + '<div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg></div>'
+          + '<div class="ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.37091 11.2501C1.58745 9.89288 1.32067 8.29835 1.61969 6.76006C1.91872 5.22177 2.76342 3.8433 3.99826 2.87846C5.2331 1.91362 6.77494 1.42737 8.33988 1.50925C9.90482 1.59113 11.3875 2.23562 12.5149 3.32406C13.6425 4.41269 14.3387 5.87206 14.4754 7.4334C14.612 8.99474 14.18 10.5529 13.2587 11.8209C12.3375 13.0888 10.9891 13.9813 9.46194 14.3337C8.18691 14.628 6.85895 14.5294 5.64989 14.0605C5.1712 13.8748 4.76962 13.4932 4.26534 13.3967C3.67413 13.2835 2.95257 13.5598 2.03794 14.3337"/><path d="M8 5V11"/><path d="M5 8H11"/></svg></div>'
           + '<b>还没有会话</b>'
           + '<span>直接在下面输入框提问<br>会在 RCHA 里发起对话</span>'
           + '</div>';
@@ -815,8 +900,8 @@
       el('ring').hidden = !!task.done;
       el('live').hidden = !!task.done;
       renderUsage(task.usage);
-      if (task.model && el('model')) {
-        el('model').querySelector('b').textContent = String(task.model).slice(0, 14);
+      if (task.model && el('model-name')) {
+        el('model-name').textContent = String(task.model).slice(0, 18);
       }
       const st = task.stats;
       const stats = el('stats');
@@ -885,7 +970,7 @@
           }
           const chev = document.createElement('span');
           chev.className = 'msg-chev';
-          chev.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
+          chev.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>';
           const time = document.createElement('span');
           time.className = 'msg-time';
           time.textContent = formatTime(m.at);
@@ -1043,8 +1128,8 @@
     el('file-chip').hidden = true;
     el('file-name').textContent = '';
     el('thumb-img').removeAttribute('src');
-    el('ask').placeholder = '问点什么…';
-    try { el('ask').style.height = '30px'; } catch (_) {}
+    el('ask').placeholder = PLACEHOLDER;
+    try { el('ask').style.height = '36px'; } catch (_) {}
     ask.value = '';
     ask.blur();
     post('focus', { value: false });
@@ -1104,10 +1189,12 @@
     document.documentElement.style.setProperty('--alpha', String(value / 100));
     post('alpha', { value });
   });
-  onTap(el('db'), e => {
+  onTap(el('meter'), e => {
     e.stopPropagation();
     const card = el('usage-card');
     card.hidden = !card.hidden;
+    el('meter').setAttribute('aria-expanded', card.hidden ? 'false' : 'true');
+    if (!card.hidden) placeUsagePanel();
   });
   onTap(el('attach'), e => { e.stopPropagation(); post('pickFile', {}); });
   onTap(el('file-x'), e => {
@@ -1116,6 +1203,16 @@
     el('file-chip').hidden = true;
     if (!pendingImage) el('attach-bar').hidden = true;
   });
+  /** 上下文面板贴着 dock 上沿（dsh 的 panel 是浮层，不能压住输入栏）。 */
+  function placeUsagePanel() {
+    const card = el('usage-card');
+    const compose = el('compose');
+    const dock = el('dock');
+    if (!card || !compose) return;
+    const foot = dock && !dock.hidden ? dock.offsetHeight : 0;
+    card.style.bottom = (compose.offsetHeight + foot + 8) + 'px';
+  }
+
   /** 菜单贴着输入栏上沿：输入框长高了、或者下面弹出提示条，都不能压住内容。 */
   function placeModelMenu() {
     const menu = el('model-menu');
@@ -1123,9 +1220,9 @@
     const box = el('notice');
     if (!menu || !compose) return;
     const extra = box && !box.hidden ? box.offsetHeight + 8 : 0;
-    const stats = el('stats');
-    const foot = stats && !stats.hidden ? stats.offsetHeight : 0;
-    menu.style.bottom = (compose.offsetHeight + extra + foot + 10) + 'px';
+    const dock = el('dock');
+    const foot = dock && !dock.hidden ? dock.offsetHeight : 0;
+    menu.style.bottom = (compose.offsetHeight + extra + foot + 8) + 'px';
   }
 
   function buildModelMenu() {
@@ -1187,7 +1284,10 @@
 
   document.addEventListener('click', e => {
     const card = el('usage-card');
-    if (!card.hidden && !card.contains(e.target) && e.target.id !== 'db') card.hidden = true;
+    if (!card.hidden && !card.contains(e.target) && !e.target.closest('#meter')) {
+      card.hidden = true;
+      el('meter').setAttribute('aria-expanded', 'false');
+    }
     const menu = el('model-menu');
     if (!menu.hidden && !menu.contains(e.target) && e.target.id !== 'model' && !e.target.closest('#model')) {
       menu.hidden = true;
