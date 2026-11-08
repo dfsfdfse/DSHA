@@ -189,6 +189,28 @@ public final class FloatWindow {
   /** 设置页（原生视图，整窗覆盖）；打开时压在网页与窗口按钮之上。 */
   private static View settingsPanel;
 
+  /**
+   * 三档大小：1 迷你（默认：最新回答 + 一行输入，高度随内容）、2 标准（自绘的对话页）、
+   * 3 完整（直接加载 dsh 页面）。1、2 是同一张自绘页切换样式，3 换成 dsh 页面。
+   */
+  private static final String K_TIER = "floatwin_tier";
+  /** 完整档单独记高度：它比标准档高得多，共用一个值会互相覆盖。 */
+  private static final String K_H3 = "floatwin_h3";
+  private static final int MINI_DP = 112;
+  private static int tier = 1;
+  private static View btnShrink;
+  private static View btnExpand;
+  private static View btnMenu;
+  private static View btnOpen;
+  private static View btnClose;
+  private static View dragStrip;
+  private static View bottomEdge;
+  private static View cornerHandle;
+
+  private static int tierPref(Context app) {
+    return Math.max(1, Math.min(3, prefs(app).getInt(K_TIER, 1)));
+  }
+
   public static void showCustom(Context context) {
     showCustom(context, 0, null);
   }
@@ -196,6 +218,7 @@ public final class FloatWindow {
   /** 切到 dsh 自己的 Web 界面：直接加载 dsh 页面并按窗口宽度缩放。 */
   private static void switchToDshUi(Context app) {
     prefs(app).edit().putString(K_UI, "dsh").apply();
+    tier = 3;
     String url = webUrl(app);
     if (url == null) {
       evaluate("window.dshFloat&&window.dshFloat.onData({tasks:[]})");
@@ -205,6 +228,7 @@ public final class FloatWindow {
     if (!create(app, false)) return;
     realPage = true;
     userClosed = false;
+    applyTierChrome();
     try {
       web.loadUrl(url);
     } catch (Throwable ignored) {
@@ -230,16 +254,19 @@ public final class FloatWindow {
     main.post(
         () -> {
           if (!com.deepseekharness.app.OverlayController.permitted(app)) return;
-          // 默认用 dsh 自己的界面（缩放适配窗口）；切到「自绘」才加载内置页。
-          String ui = prefs(app).getString(K_UI, "dsh");
-          if (!"custom".equals(ui) && webUrl(app) != null) {
+          // 档位决定页面：3 档直接是 dsh 页面；1、2 档是自绘页（dsh 没起来时 3 档退回 2 档）。
+          int t = tierPref(app);
+          if (t == 3 && webUrl(app) != null) {
             switchToDshUi(app);
             return;
           }
+          tier = t == 3 ? 2 : t;
           if (web != null && realPage) dismiss();
           if (web == null && !create(app, true)) return;
           realPage = false;
           userClosed = false;
+          applyTierChrome();
+          evaluate("window.dshFloat&&window.dshFloat.setTier&&window.dshFloat.setTier(" + tier + ")");
           if (alpha > 0) {
             prefs(app)
                 .edit()
@@ -266,6 +293,8 @@ public final class FloatWindow {
           if (url == null) return;
           if (web != null && realPage) return;
           if (web != null) dismiss();
+          tier = 3;
+          prefs(app).edit().putInt(K_TIER, 3).apply();
           if (!create(app, false)) return;
           realPage = true;
           userClosed = false;
@@ -563,58 +592,56 @@ public final class FloatWindow {
     stripParams.rightMargin = dp(app, 104);
     frame.addView(strip, stripParams);
     attachMove(strip, frame);
+    dragStrip = strip;
 
-    // 悬浮窗自己的按钮：菜单 / 关闭 / 回到应用。
-    FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
-    menuParams.gravity = Gravity.TOP | Gravity.END;
-    menuParams.topMargin = dp(app, 4);
-    menuParams.rightMargin = dp(app, 66);
-    frame.addView(overlayButton(app, "≡"), menuParams);
-    frame.getChildAt(frame.getChildCount() - 1)
-        .setOnClickListener(v -> toggleSettings(app));
-
-    FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
-    closeParams.gravity = Gravity.TOP | Gravity.END;
-    closeParams.topMargin = dp(app, 4);
-    closeParams.rightMargin = dp(app, 6);
-    frame.addView(overlayButton(app, "×"), closeParams);
-    frame.getChildAt(frame.getChildCount() - 1)
-        .setOnClickListener(
-            v -> {
-              userClosed = true;
-              dismiss();
-            });
-
-    FrameLayout.LayoutParams openParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
-    openParams.gravity = Gravity.TOP | Gravity.END;
-    openParams.topMargin = dp(app, 4);
-    openParams.rightMargin = dp(app, 36);
-    frame.addView(overlayButton(app, "↗"), openParams);
-    frame.getChildAt(frame.getChildCount() - 1)
-        .setOnClickListener(v -> openApp());
+    // 悬浮窗自己的按钮（从左到右）：缩小 / 放大 / 设置 / 回到应用 / 关闭。
+    // 位置与显隐由 applyTierChrome 按档位排：迷你只留「放大」和「关闭」。
+    btnShrink = iconButton(app, ICON_DOWN);
+    btnShrink.setOnClickListener(v -> setTier(app, tier - 1));
+    btnExpand = iconButton(app, ICON_UP);
+    btnExpand.setOnClickListener(v -> setTier(app, tier + 1));
+    btnMenu = iconButton(app, ICON_MENU);
+    btnMenu.setOnClickListener(v -> toggleSettings(app));
+    btnOpen = iconButton(app, ICON_OPEN);
+    btnOpen.setOnClickListener(v -> openApp());
+    btnClose = iconButton(app, ICON_CLOSE);
+    btnClose.setOnClickListener(
+        v -> {
+          userClosed = true;
+          dismiss();
+        });
+    for (View b : new View[] {btnShrink, btnExpand, btnMenu, btnOpen, btnClose}) {
+      FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
+      bp.gravity = Gravity.TOP | Gravity.END;
+      bp.topMargin = dp(app, 2);
+      frame.addView(b, bp);
+    }
 
     // 边缘缩放：右边缘、下边缘与右下角，宽高由原生手势直接改窗口尺寸。
     View rightEdge = transparent(app);
     FrameLayout.LayoutParams rightParams =
         new FrameLayout.LayoutParams(dp(app, EDGE_DP), ViewGroup.LayoutParams.MATCH_PARENT);
     rightParams.gravity = Gravity.END | Gravity.TOP;
+    rightParams.topMargin = dp(app, HEAD_DP);
     rightParams.bottomMargin = dp(app, EDGE_DP);
     frame.addView(rightEdge, rightParams);
     attachResize(rightEdge, frame, true, false);
 
-    View bottomEdge = transparent(app);
+    View bottom = transparent(app);
     FrameLayout.LayoutParams bottomParams =
         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, EDGE_DP));
     bottomParams.gravity = Gravity.BOTTOM | Gravity.START;
     bottomParams.rightMargin = dp(app, EDGE_DP);
-    frame.addView(bottomEdge, bottomParams);
-    attachResize(bottomEdge, frame, false, true);
+    frame.addView(bottom, bottomParams);
+    attachResize(bottom, frame, false, true);
+    bottomEdge = bottom;
 
     View corner = transparent(app);
     FrameLayout.LayoutParams cornerParams = new FrameLayout.LayoutParams(dp(app, HANDLE_DP), dp(app, HANDLE_DP));
     cornerParams.gravity = Gravity.BOTTOM | Gravity.END;
     frame.addView(corner, cornerParams);
     attachResize(corner, frame, true, true);
+    cornerHandle = corner;
 
     // 窗口保持不透明：半透明只由页面画。两边都设会叠乘（0.6×0.6=0.36），
     // 背后的网页文字透上来，悬浮窗里的字全糊在一起。
@@ -635,9 +662,8 @@ public final class FloatWindow {
     int screenH = screenH(app);
     SharedPreferences p = prefs(app);
     int defaultW = Math.min((int) (screenW * 0.94f), 760);
-    int defaultH = Math.min(dp(app, 340), (int) (screenH * 0.55f));
     lp.width = Math.max(dp(app, MIN_W_DP), Math.min(screenW, p.getInt(K_W, defaultW)));
-    lp.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, p.getInt(K_H, defaultH)));
+    lp.height = tierHeight(app, loadCustomPage ? tier : 3);
     lp.gravity = Gravity.TOP | Gravity.START;
     lp.x = clamp(p.getInt(K_X, (screenW - lp.width) / 2), 0, Math.max(0, screenW - lp.width));
     lp.y = clamp(p.getInt(K_Y, dp(app, 64)), 0, Math.max(0, screenH - lp.height));
@@ -650,6 +676,7 @@ public final class FloatWindow {
     web = view;
     container = frame;
     params = lp;
+    applyTierChrome();
     if (loadCustomPage) {
       view.loadDataWithBaseURL(
           BASE_URL, readAsset(app, "floatwin/index.html"), "text/html", "utf-8", null);
@@ -798,52 +825,26 @@ public final class FloatWindow {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     page.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-    // ── 界面：dsh 原生 / 自绘
-    body.addView(section(app, "界面", tertiary));
-    final boolean[] nativeUi = {!"custom".equals(prefs(app).getString(K_UI, "dsh"))};
+    // ── 大小：迷你 / 标准 / 完整（与窗口上的放大、缩小按钮是同一个档位）
+    body.addView(section(app, "大小", tertiary));
     LinearLayout seg = new LinearLayout(app);
     seg.setOrientation(LinearLayout.HORIZONTAL);
     seg.setBackground(round(app, selector, 6, 0, 0));
     seg.setPadding(dp(app, 2), dp(app, 2), dp(app, 2), dp(app, 2));
-    final android.widget.TextView[] cells = new android.widget.TextView[2];
-    String[] cellNames = {"dsh 原生", "自绘"};
-    for (int i = 0; i < 2; i++) {
-      cells[i] = label(app, cellNames[i], 12, muted, false);
-      cells[i].setGravity(Gravity.CENTER);
-      seg.addView(
-          cells[i], new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+    String[] cellNames = {"迷你", "标准", "完整"};
+    for (int i = 0; i < 3; i++) {
+      final int t = i + 1;
+      boolean on = t == tier;
+      android.widget.TextView cell = label(app, cellNames[i], 12, on ? fg : muted, false);
+      cell.setGravity(Gravity.CENTER);
+      cell.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+      cell.setBackground(on ? round(app, field, 5, 0, 0) : null);
+      cell.setOnClickListener(v -> setTier(app, t));
+      seg.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
     }
-    final Runnable paintSeg =
-        () -> {
-          for (int i = 0; i < 2; i++) {
-            boolean on = (i == 0) == nativeUi[0];
-            cells[i].setTextColor(on ? fg : muted);
-            cells[i].setTypeface(
-                null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-            cells[i].setBackground(on ? round(app, field, 5, 0, 0) : null);
-          }
-        };
-    paintSeg.run();
-    cells[0].setOnClickListener(
-        v -> {
-          if (nativeUi[0]) return;
-          if (webUrl(app) == null) {
-            toast(app, "dsh 还没启动，先运行 dsh 再切原生界面");
-            return;
-          }
-          nativeUi[0] = true;
-          paintSeg.run();
-          switchToDshUi(app);
-        });
-    cells[1].setOnClickListener(
-        v -> {
-          if (!nativeUi[0]) return;
-          nativeUi[0] = false;
-          paintSeg.run();
-          switchToCustomUi(app);
-        });
     body.addView(
         seg, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 32)));
+    body.addView(hint(app, "迷你：最新回答 + 一行输入；标准：对话列表；完整：直接是 dsh。", tertiary));
 
     // ── 只对当前的界面类型显示相关项：dsh 页面调字号，自绘页调透明度与区块
     if (realPage) {
@@ -1119,12 +1120,11 @@ public final class FloatWindow {
     int screenW = screenW(app);
     int screenH = screenH(app);
     int width = Math.min((int) (screenW * 0.94f), 760);
-    int height = Math.min(dp(app, 340), (int) (screenH * 0.55f));
+    prefs(app).edit().remove(K_X).remove(K_Y).remove(K_W).remove(K_H).remove(K_H3).apply();
     params.width = Math.max(dp(app, MIN_W_DP), Math.min(screenW, width));
-    params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, height));
+    params.height = tierHeight(app, tier);
     params.x = clamp((screenW - params.width) / 2, 0, Math.max(0, screenW - params.width));
     params.y = clamp(dp(app, 64), 0, Math.max(0, screenH - params.height));
-    prefs(app).edit().remove(K_X).remove(K_Y).remove(K_W).remove(K_H).apply();
     updateLayout(container);
   }
 
@@ -1249,8 +1249,164 @@ public final class FloatWindow {
         .putInt(K_X, params.x)
         .putInt(K_Y, params.y)
         .putInt(K_W, params.width)
-        .putInt(K_H, params.height)
         .apply();
+    // 迷你档的高度跟着内容走，不记；标准档与完整档各记各的
+    if (tier == 2) prefs(appCtx).edit().putInt(K_H, params.height).apply();
+    else if (tier == 3) prefs(appCtx).edit().putInt(K_H3, params.height).apply();
+  }
+
+  /** 某一档打开时的窗口高度。 */
+  private static int tierHeight(Context app, int t) {
+    int screenH = screenH(app);
+    SharedPreferences p = prefs(app);
+    if (t == 1) return dp(app, MINI_DP);
+    if (t == 3) {
+      int def = Math.min(dp(app, 620), (int) (screenH * 0.72f));
+      return Math.max(dp(app, MIN_H_DP), Math.min(screenH, p.getInt(K_H3, def)));
+    }
+    int def = Math.min(dp(app, 360), (int) (screenH * 0.5f));
+    return Math.max(dp(app, MIN_H_DP), Math.min(screenH, p.getInt(K_H, def)));
+  }
+
+  /**
+   * 切档。1↔2 只换自绘页的样式和窗口高度；进 3 档换成 dsh 页面，离开 3 档换回自绘页。
+   * 窗口左上角位置不动，变高时碰到屏幕底就整体上移。
+   */
+  private static void setTier(Context app, int next) {
+    int t = Math.max(1, Math.min(3, next));
+    if (t == tier && web != null) return;
+    if (t == 3 && webUrl(app) == null) {
+      toast(app, "dsh 还没启动，先运行 dsh 才能展开成完整界面");
+      return;
+    }
+    prefs(app).edit().putInt(K_TIER, t).apply();
+    closeSettings();
+    if (t == 3) {
+      switchToDshUi(app);
+      return;
+    }
+    if (realPage || web == null) {
+      tier = t;
+      if (web != null) dismiss();
+      showCustom(app, 0, null);
+      return;
+    }
+    tier = t;
+    if (params != null && container != null) {
+      int screenH = screenH(app);
+      params.height = tierHeight(app, t);
+      params.y = clamp(params.y, 0, Math.max(0, screenH - params.height));
+      updateLayout(container);
+    }
+    applyTierChrome();
+    evaluate("window.dshFloat&&window.dshFloat.setTier&&window.dshFloat.setTier(" + t + ")");
+  }
+
+  /** 按档位排窗口按钮：从右往左 关闭、回应用、设置、放大、缩小，看不见的不占位。 */
+  private static void applyTierChrome() {
+    Context app = appCtx;
+    if (app == null || btnClose == null) return;
+    boolean[] visible = {
+      true, // close
+      tier >= 2, // open app
+      tier >= 2, // menu
+      tier <= 2, // expand
+      tier >= 2, // shrink
+    };
+    View[] order = {btnClose, btnOpen, btnMenu, btnExpand, btnShrink};
+    int slot = 0;
+    for (int i = 0; i < order.length; i++) {
+      View b = order[i];
+      b.setVisibility(visible[i] ? View.VISIBLE : View.GONE);
+      if (!visible[i]) continue;
+      FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) b.getLayoutParams();
+      lp.rightMargin = dp(app, 6 + 28 * slot);
+      b.setLayoutParams(lp);
+      slot++;
+    }
+    if (dragStrip != null) {
+      FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams) dragStrip.getLayoutParams();
+      sp.rightMargin = dp(app, 10 + 28 * slot);
+      sp.height = dp(app, tier == 1 ? 24 : HEAD_DP);
+      dragStrip.setLayoutParams(sp);
+    }
+    // 迷你档高度由内容决定，竖向缩放手柄收起，免得盖住输入栏
+    int vis = tier == 1 ? View.GONE : View.VISIBLE;
+    if (bottomEdge != null) bottomEdge.setVisibility(vis);
+    if (cornerHandle != null) cornerHandle.setVisibility(vis);
+  }
+
+  private static final int ICON_CLOSE = 0;
+  private static final int ICON_OPEN = 1;
+  private static final int ICON_MENU = 2;
+  private static final int ICON_UP = 3;
+  private static final int ICON_DOWN = 4;
+
+  /** 窗口按钮：dsh 那种无底色线性图标（1.3dp 描边、label-secondary），按下才浮一层圆形 hover。 */
+  private static View iconButton(Context app, final int kind) {
+    final boolean dark = isDark(app);
+    final float density = app.getResources().getDisplayMetrics().density;
+    final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    paint.setStyle(android.graphics.Paint.Style.STROKE);
+    paint.setStrokeWidth(1.3f * density);
+    paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+    paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+    paint.setColor(dark ? 0xFFCFD3D6 : 0xFF61666B);
+    View v =
+        new View(app) {
+          private final android.graphics.Path path = new android.graphics.Path();
+
+          @Override
+          protected void onDraw(android.graphics.Canvas c) {
+            super.onDraw(c);
+            float cx = getWidth() / 2f, cy = getHeight() / 2f, r = 5.5f * density;
+            path.reset();
+            switch (kind) {
+              case ICON_CLOSE:
+                path.moveTo(cx - r * 0.75f, cy - r * 0.75f);
+                path.lineTo(cx + r * 0.75f, cy + r * 0.75f);
+                path.moveTo(cx + r * 0.75f, cy - r * 0.75f);
+                path.lineTo(cx - r * 0.75f, cy + r * 0.75f);
+                break;
+              case ICON_OPEN:
+                path.moveTo(cx - r * 0.7f, cy + r * 0.7f);
+                path.lineTo(cx + r * 0.7f, cy - r * 0.7f);
+                path.moveTo(cx - r * 0.15f, cy - r * 0.7f);
+                path.lineTo(cx + r * 0.7f, cy - r * 0.7f);
+                path.lineTo(cx + r * 0.7f, cy + r * 0.15f);
+                break;
+              case ICON_MENU:
+                for (float dy : new float[] {-0.65f, 0f, 0.65f}) {
+                  path.moveTo(cx - r * 0.85f, cy + r * dy);
+                  path.lineTo(cx + r * 0.85f, cy + r * dy);
+                }
+                break;
+              case ICON_UP:
+                path.moveTo(cx - r * 0.8f, cy + r * 0.35f);
+                path.lineTo(cx, cy - r * 0.45f);
+                path.lineTo(cx + r * 0.8f, cy + r * 0.35f);
+                break;
+              default:
+                path.moveTo(cx - r * 0.8f, cy - r * 0.35f);
+                path.lineTo(cx, cy + r * 0.45f);
+                path.lineTo(cx + r * 0.8f, cy - r * 0.35f);
+                break;
+            }
+            c.drawPath(path, paint);
+          }
+        };
+    v.setClickable(true);
+    v.setContentDescription(
+        kind == ICON_CLOSE ? "关闭" : kind == ICON_OPEN ? "回到应用" : kind == ICON_MENU ? "设置"
+            : kind == ICON_UP ? "放大" : "缩小");
+    android.graphics.drawable.GradientDrawable pressed = new android.graphics.drawable.GradientDrawable();
+    pressed.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+    pressed.setColor(dark ? 0x14FFFFFF : 0x0F000000);
+    android.graphics.drawable.StateListDrawable bg = new android.graphics.drawable.StateListDrawable();
+    bg.addState(new int[] {android.R.attr.state_pressed}, pressed);
+    bg.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0));
+    v.setBackground(bg);
+    return v;
   }
 
   private static void onMessage(String data, JavaScriptReplyProxy reply) {
@@ -1310,7 +1466,25 @@ public final class FloatWindow {
         }
         case "ui": {
           Context ctx = web == null ? null : web.getContext();
-          if (ctx != null && "dsh".equals(p.optString("value", ""))) switchToDshUi(ctx);
+          if (ctx != null && "dsh".equals(p.optString("value", ""))) setTier(ctx, 3);
+          return;
+        }
+        case "tier": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) setTier(ctx, p.optInt("value", tier + 1));
+          return;
+        }
+        case "fit": {
+          // 迷你档：窗口高度贴着页面内容（最新回答 + 输入栏），回答展开时跟着长
+          if (realPage || tier != 1 || params == null || container == null || appCtx == null) return;
+          int h = p.optInt("h", 0);
+          if (h <= 0) return;
+          int screenH = screenH(appCtx);
+          int px = clamp(dp(appCtx, h), dp(appCtx, 56), Math.min((int) (screenH * 0.6f), dp(appCtx, 440)));
+          if (Math.abs(px - params.height) < 2) return;
+          params.height = px;
+          params.y = clamp(params.y, 0, Math.max(0, screenH - px));
+          updateLayout(container);
           return;
         }
         case "threads": {
@@ -1436,6 +1610,7 @@ public final class FloatWindow {
             (ctx.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         payload.put("theme", dark ? "dark" : "light");
+        payload.put("tier", tier);
       }
       return payload.toString();
     } catch (Exception ignored) {

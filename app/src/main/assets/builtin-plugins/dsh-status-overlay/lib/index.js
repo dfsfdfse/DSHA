@@ -256,7 +256,7 @@ async function sendFloat(key, b) {
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
-        steps: s.steps || 0,
+        steps: Number(s.stepCount) || 0,
         total: usage?.total || 0,
         cacheHit: usage?.cacheHit ?? null,
         tps: s.genMs > 0 && s.outTokens > 0 ? Math.round(s.outTokens / (s.genMs / 1000)) : 0,
@@ -433,21 +433,21 @@ async function loadHistory(sessionId) {
         const sourceKind = String(data?.source?.kind || data?.message?.source?.kind || '')
         if (sourceKind && sourceKind !== 'user') continue
         const text = textOf(data.message?.content || data.content)
-        if (text) b.messages.push({ depth, kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+        if (text) b.messages.push({ depth: 0, kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
       } else if (event.type === 'assistant/message') {
         const text = textOf(data.message?.content || data.content)
-        if (text) b.messages.push({ depth, kind: 'assistant', title: text.slice(0, 48), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+        if (text) b.messages.push({ depth: 0, kind: 'assistant', title: text.slice(0, 48), text: text.slice(0, 4000), at: Number(event.at) || 0 })
       } else if (event.type === 'tool/call') {
         const label = toolLabel(data.name)
         const detail = toolDetail(data.arguments)
-        b.messages.push({ depth, kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
+        b.messages.push({ depth: 0, kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
       }
     }
     b.messages = b.messages.slice(-40)
     b.done = true
     b.updated = Date.now()
     if (!b.turns) b.turns = b.messages.filter(m => m.kind === 'user').length
-    if (!b.steps) b.steps = b.messages.filter(m => m.kind === 'tool').length
+    if (!b.stepCount) b.stepCount = b.messages.filter(m => m.kind === 'tool').length
     publishFloat(sessionId)
     return true
   } catch {
@@ -546,8 +546,17 @@ async function ensureAgent(wanted) {
 }
 
 /** 把一条提示写进状态并立刻推给页面（7 秒后页面自己收起来）。 */
+let noticeTimer
 function setNotice(text) {
   const next = String(text || '')
+  clearTimeout(noticeTimer)
+  if (next) {
+    noticeTimer = setTimeout(() => {
+      if (notice !== next) return
+      notice = ''
+      try { publishFloat('') } catch { }
+    }, 8000)
+  }
   if (next === notice) return
   notice = next
   try { publishFloat('') } catch { }
@@ -661,7 +670,7 @@ function publishFloat(activeKey) {
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
-        steps: s.steps || 0,
+        steps: Number(s.stepCount) || 0,
         total: usage?.total || 0,
         cacheHit: usage?.cacheHit ?? null,
         tps: s.genMs > 0 && s.outTokens > 0 ? Math.round(s.outTokens / (s.genMs / 1000)) : 0,
@@ -693,6 +702,44 @@ function duration(ms) {
 }
 
 /** 把攒着的一段思考落成一条「思考」消息；同一轮里连续多段就并进同一条。 */
+/**
+ * 正文流：边写边更新一条「进行中的回答」（保留换行，悬浮窗迷你档就显示它），
+ * 遇到工具调用或本轮结束时收尾成普通的一条回答。主会话与子代理各用各的槽位。
+ */
+function liveSlot(depth) {
+  return depth ? 'live1' : 'live0'
+}
+function appendLive(b, depth, piece) {
+  const slot = liveSlot(depth)
+  const acc = (b[slot + 'Text'] || '') + piece
+  b[slot + 'Text'] = acc.length > 6000 ? acc.slice(-6000) : acc
+  let msg = b[slot]
+  if (!msg || !b.messages.includes(msg)) {
+    msg = { depth, kind: 'assistant', title: '', text: '', at: Date.now(), live: true }
+    b.messages.push(msg)
+    if (b.messages.length > 40) b.messages.splice(0, b.messages.length - 40)
+    b[slot] = msg
+  }
+  const text = b[slot + 'Text'].trim()
+  msg.title = text.replace(/\s+/g, ' ').slice(0, 48)
+  msg.text = text.slice(-4000)
+}
+/** 收尾当前这段正文；返回是否真的有一段。 */
+function closeLive(b, depth) {
+  const slot = liveSlot(depth)
+  const msg = b[slot]
+  b[slot] = undefined
+  b[slot + 'Text'] = ''
+  if (!msg) return false
+  delete msg.live
+  if (!msg.text) {
+    const i = b.messages.indexOf(msg)
+    if (i >= 0) b.messages.splice(i, 1)
+    return false
+  }
+  return true
+}
+
 function pushThink(b, depth) {
   const acc = String(b.thinkAcc || '').trim()
   b.thinkAcc = ''
@@ -837,6 +884,7 @@ export function apply(ctx) {
             pushThink(b, depth)
           }
           b.line = tail(b.line + piece)
+          appendLive(b, depth, piece)
           // 不把原始 token 送到悬浮窗：只表达「正在生成」。
           b.status = '正在生成回复…'
           b.updated = Date.now()
@@ -878,6 +926,7 @@ export function apply(ctx) {
         // 这也是悬浮条上就地批准危险命令时唯一的判断依据。
         const label = toolLabel(data?.name)
         const detail = toolDetail(data?.arguments)
+        closeLive(b, depth)
         b.line = detail ? label + ': ' + detail : label
         b.think = ''
         // 工具状态要立刻可见（它替代整行，且不像正文那样高频）
@@ -888,7 +937,7 @@ export function apply(ctx) {
         if (b.thinkAcc) {
           pushThink(b, depth)
         }
-        b.steps = (b.steps || 0) + 1
+        b.stepCount = (b.stepCount || 0) + 1
         b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
@@ -934,6 +983,7 @@ export function apply(ctx) {
         b.line = ''
         b.think = ''
         b.thinkAcc = ''
+        closeLive(b, depth)
         b.turnStart = Date.now()
         b.turns = (b.turns || 0) + 1
         b.done = false
@@ -952,7 +1002,8 @@ export function apply(ctx) {
           b.timer = undefined
         }
         if (b.thinkAcc) pushThink(b, depth)
-        const finished = (b.line || '').replace(/\s+/g, ' ').trim()
+        const hadLive = closeLive(b, depth)
+        const finished = hadLive ? '' : (b.line || '').replace(/\s+/g, ' ').trim()
         if (finished) {
           b.messages.push({ depth,
             kind: 'assistant',
