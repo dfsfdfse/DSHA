@@ -237,6 +237,7 @@ async function sendFloat(key, b) {
       done: !!s.done,
       usage: usageOf(s.session),
       model: modelOf(k),
+      since: s.turnStart || 0,
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -401,6 +402,7 @@ function publishFloat(activeKey) {
       done: !!s.done,
       usage: usageOf(s.session),
       model: modelOf(k),
+      since: s.turnStart || 0,
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -412,6 +414,32 @@ function publishFloat(activeKey) {
     models: modelCatalog.slice(0, 16),
     notice,
   }))
+}
+
+/** 毫秒 → 「2 分 13 秒」/「9 秒」，和 dsh 的写法一致。 */
+function duration(ms) {
+  const total = Math.max(1, Math.round(ms / 1000))
+  if (total < 60) return total + ' 秒'
+  const m = Math.floor(total / 60)
+  const sec = total % 60
+  if (m < 60) return sec ? m + ' 分 ' + sec + ' 秒' : m + ' 分'
+  const h = Math.floor(m / 60)
+  return h + ' 小时 ' + (m % 60) + ' 分'
+}
+
+/** 把攒着的一段思考落成一条「思考」消息；同一轮里连续多段就并进同一条。 */
+function pushThink(b) {
+  const acc = String(b.thinkAcc || '').trim()
+  b.thinkAcc = ''
+  if (!acc) return
+  const last = b.messages[b.messages.length - 1]
+  if (last && last.kind === 'think') {
+    last.text = (last.text + '\n' + acc).slice(0, 4000)
+    last.at = Date.now()
+    return
+  }
+  b.messages.push({ kind: 'think', title: '思考', text: acc.slice(0, 4000), at: Date.now() })
+  if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
 }
 
 function pushStep(b, text) {
@@ -510,8 +538,12 @@ export function apply(ctx) {
         // 正文与思考各留一条缓冲：思考结束转正文时，两段不该被拼成一句
         if (isThink) {
           b.think = tail((b.think || '') + piece)
+          b.thinkAcc = ((b.thinkAcc || '') + piece).slice(0, 4000)
           schedule(key, 'reasoning', () => b.think)
         } else {
+          if (b.thinkAcc) {
+            pushThink(b)
+          }
           b.line = tail(b.line + piece)
           // 不把原始 token 送到悬浮窗：只表达「正在生成」。
           b.status = '正在生成回复…'
@@ -556,6 +588,9 @@ export function apply(ctx) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
+        if (b.thinkAcc) {
+          pushThink(b)
+        }
         b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
@@ -579,6 +614,8 @@ export function apply(ctx) {
         b.session = session
         b.line = ''
         b.think = ''
+        b.thinkAcc = ''
+        b.turnStart = Date.now()
         b.done = false
         b.updated = Date.now()
         b.status = '正在处理…'
@@ -594,6 +631,7 @@ export function apply(ctx) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
+        if (b.thinkAcc) pushThink(b)
         const finished = (b.line || '').replace(/\s+/g, ' ').trim()
         if (finished) {
           b.messages.push({
@@ -608,6 +646,13 @@ export function apply(ctx) {
         b.updated = Date.now()
         b.detail = ''
         b.done = true
+        // dsh 会在这一轮结束时写「已完成，用时 …」，悬浮窗也留一行，方便回看花了多久
+        const spent = b.turnStart ? Date.now() - b.turnStart : 0
+        b.turnStart = 0
+        if (spent >= 1000) {
+          b.messages.push({ kind: 'note', title: '已完成', text: '已完成，用时 ' + duration(spent), at: Date.now() })
+          if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
+        }
         scheduleFloat(key, b)
       }
     } catch {

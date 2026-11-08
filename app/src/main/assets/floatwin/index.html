@@ -173,6 +173,15 @@
   }
   /* 回复/提问没有标题：标题元素留着当弹性占位，时间才靠右 */
   .msg.no-title .msg-title { display: block; -webkit-line-clamp: 1; min-height: 0; }
+  /* 工具调用和思考：折叠时只有一行「标签 · 参数」，点开才看全文（和 dsh 一样） */
+  .msg.tool .msg-body, .msg.think .msg-body { display: none; }
+  .msg.tool.open .msg-body, .msg.think.open .msg-body { display: block; }
+  .msg.think .badge { background: #b8bec7; }
+  .msg.think .msg-title { color: var(--muted); }
+  .msg.think .msg-body { color: var(--muted); font-style: italic; }
+  /* 一轮结束的用时行：居中、细小，不抢内容 */
+  .msg.note { border-bottom: none; padding: 2px 0 6px; text-align: center; }
+  .msg-note { font-size: 10.5px; color: var(--muted); letter-spacing: .2px; }
   .msg.open .msg-body {
     display: block; -webkit-line-clamp: unset; max-height: 42vh; overflow-y: auto;
   }
@@ -579,6 +588,26 @@
     return hh + ':' + mm;
   }
 
+  /** 毫秒 → 「2 分 13 秒」，和 dsh 的写法一致。 */
+  function fmtDuration(ms) {
+    const total = Math.max(1, Math.round(Number(ms) / 1000));
+    if (total < 60) return total + ' 秒';
+    const m = Math.floor(total / 60);
+    const sec = total % 60;
+    if (m < 60) return sec ? m + ' 分 ' + sec + ' 秒' : m + ' 分';
+    return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分';
+  }
+
+  let workingTimer = 0;
+  /** 正在处理那行跟着走秒（dsh 是「深度求索中，用时 6 分 13 秒 ···」）。 */
+  function startWorkingClock(label, since) {
+    if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
+    if (!since) return;
+    const paint = () => { label.textContent = '深度求索中，用时 ' + fmtDuration(Date.now() - since); };
+    paint();
+    workingTimer = setInterval(paint, 1000);
+  }
+
   function shortK(n) {
     if (!Number.isFinite(n)) return '?';
     if (n >= 1000000) {
@@ -737,6 +766,7 @@
           + '<span>直接在下面输入框提问<br>会在 RCHA 里发起对话</span>'
           + '</div>';
         syncBusy(false);
+        if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
         refreshSendMode();
         el('live').hidden = true;
         el('tabs').hidden = true;
@@ -801,15 +831,26 @@
           list.appendChild(empty);
         }
         msgs.forEach((m, i) => {
-          const kind = m.kind === 'tool' ? 'tool' : m.kind === 'user' ? 'user' : 'assistant';
+          const kind = m.kind === 'tool' ? 'tool'
+            : m.kind === 'user' ? 'user'
+              : m.kind === 'think' ? 'think'
+                : m.kind === 'note' ? 'note' : 'assistant';
           const item = document.createElement('div');
           item.className = 'msg ' + kind;
           item.dataset.id = task.id + ':' + i;
+          if (kind === 'note') {
+            item.appendChild(Object.assign(document.createElement('div'), {
+              className: 'msg-note',
+              textContent: m.text || m.title || '',
+            }));
+            list.appendChild(item);
+            return;
+          }
           const isLast = i === msgs.length - 1;
           // 最新一条默认展开：问完就能直接读回复，不用先点开
           if (item.dataset.id === openId || (isLast && !openId)) item.classList.add('open');
           // 回复和提问没有「标题」，正文就是内容（dsh 也是这么排的）
-          if (kind !== 'tool') item.classList.add('no-title');
+          if (kind === 'assistant' || kind === 'user') item.classList.add('no-title');
 
           const head = document.createElement('div');
           head.className = 'msg-head';
@@ -817,8 +858,12 @@
           badge.className = 'badge';
           const title = document.createElement('span');
           title.className = 'msg-title';
-          if (kind === 'tool') {
-            title.textContent = (m.title || '工具调用') + (m.count > 1 ? ' ×' + m.count : '');
+          if (kind === 'tool' || kind === 'think') {
+            const base = m.title || (kind === 'think' ? '思考' : '工具调用');
+            const withCount = m.count > 1 ? base + ' ×' + m.count : base;
+            const first = String(m.text || '').trim().split('\n')[0];
+            // dsh 是把参数直接接在标题后面一行看完的
+            title.textContent = first ? withCount + ' · ' + first : withCount;
           }
           const chev = document.createElement('span');
           chev.className = 'msg-chev';
@@ -861,9 +906,10 @@
           dots.className = 'dots';
           for (let i = 0; i < 3; i++) dots.appendChild(document.createElement('i'));
           const label = document.createElement('span');
-          label.textContent = 'agent 正在处理…';
+          label.textContent = '深度求索中…';
           working.append(dots, label);
           list.appendChild(working);
+          startWorkingClock(label, task.since);
         }
         list.scrollTop = list.scrollHeight;
         // 没被截断的行不需要展开箭头
