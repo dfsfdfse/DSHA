@@ -18,8 +18,11 @@
     --accent: rgb(65, 118, 230);       /* --dsw-alias-button-info-fill */
     --field: #fff;                     /* --dsw-specific-input-major */
     --selector: rgb(245, 246, 247);    /* --dsw-specific-selector */
-    --danger: #ff6b5e;
+    --danger: #ff6b5e;                 /* state-error */
     --ok: #46c37b;
+    --hover: rgba(38, 49, 72, .06);    /* --dsw-alias-interactive-bg-hover */
+    --warn: rgb(221, 134, 41);         /* --dsw-alias-state-warn-label */
+    --warn-soft: rgb(247, 173, 49);    /* --dsw-alias-state-warn-secondary */
     --font: var(--dsh-font, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue',
       Arial, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif);
     --fs-content: 14px;                /* --dsh-content-font-size */
@@ -41,6 +44,7 @@
     --accent: rgb(122, 170, 255);
     --field: rgb(44, 44, 46);
     --selector: rgb(53, 54, 56);
+    --hover: rgba(255, 255, 255, .08);
   }
   /* 深色只需要补那些没有 token 的地方；窗口/卡片/按钮的颜色都由变量决定 */
   body.dark .tab { background: var(--selector); }
@@ -130,7 +134,7 @@
     background: transparent; border: 1px solid var(--line); border-radius: 6px;
     padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .tab.active { color: #3f7dfb; border-color: rgba(63,125,251,.45); background: rgba(63,125,251,.10); }
+  .tab.active { color: var(--accent); border-color: var(--accent); background: var(--hover); }
 
   /* 消息列表：填满剩余高度并滚动，样式对齐聊天记录 */
   #list {
@@ -149,7 +153,7 @@
   .empty-state b { font-size: 13px; font-weight: 500; color: var(--fg); }
   .empty-state span { font-size: 11.5px; line-height: 1.6; color: rgba(23,24,28,.45); }
   .empty-state .ico { width: 34px; height: 34px; border-radius: 6px;
-    background: rgba(63,125,251,.10); display: flex; align-items: center; justify-content: center; }
+    background: var(--hover); color: var(--accent); display: flex; align-items: center; justify-content: center; }
   .empty-state .ico svg { width: 18px; height: 18px; stroke: var(--accent); fill: none;
     stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -171,7 +175,7 @@
     flex: 0 0 auto; width: 4px; height: 4px; margin-top: 7px;
     background: var(--accent);
   }
-  .msg.tool .badge { background: #ffcf7a; }
+  .msg.tool .badge { background: var(--warn-soft); }
   /* dsh 的提问是右对齐气泡：max-width 82%、圆角 12、selector 底 */
   .msg.user {
     margin-left: 18%; width: auto; max-width: 82%;
@@ -261,7 +265,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
     background: rgba(0,0,0,.05); border-radius: 4px; padding: 1px 4px; color: #2b2f36;
   }
-  .msg-body .url { color: #3f7dfb; background: rgba(63,125,251,.08); }
+  .msg-body .url { color: var(--accent); background: var(--hover); }
   .msg-body::-webkit-scrollbar { width: 3px; }
   .msg-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); }
 
@@ -321,7 +325,7 @@
   }
   #usage[hidden] { display: none; }
   #usage-meter { flex: 1 1 auto; height: 3px; background: rgba(0,0,0,.10); border-radius: 2px; overflow: hidden; }
-  #usage-fill { display: block; height: 100%; width: 0; background: #4c8dff; }
+  #usage-fill { display: block; height: 100%; width: 0; background: var(--meter-msg); }
 
   /* 卡片：绝对定位浮在输入栏上方，样式对齐 dsh 的上下文弹层 */
   /* 上下文面板：照 dsh ContextMeter.module.css（264 宽、padding 12、radius lg、12px） */
@@ -350,9 +354,9 @@
   .urow span { flex: 1 1 auto; }
   .urow b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
   #u-hint { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line);
-    font-size: 11px; color: #d98324; }
+    font-size: 12px; color: var(--warn); }
   #u-hint[hidden] { display: none; }
-  #usage-card.warn .ubar .msg { background: #ffcf7a; }
+  #usage-card.warn .ubar .msg { background: var(--warn-soft); }
   #usage-card.danger .uhead b { color: #ff6b5e; }
   #usage-card.danger .ubar i { background: #ff6b5e; }
 
@@ -409,10 +413,10 @@
   body.hide-compose #compose { display: none !important; }
 
   /* 附件预览：圆角缩略图 + 右上角移除，参照 dsh 的附件卡片 */
-  #attach-bar { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 6px; }
+  #attach-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 2px 10px 0; }
   #attach-bar[hidden] { display: none; }
-  .thumb { position: relative; width: 52px; height: 52px; border-radius: 4px; overflow: hidden;
-    background: #eef0f3; border: 1px solid rgba(0,0,0,.06); }
+  .thumb { position: relative; width: 64px; height: 64px; border-radius: 20px; overflow: hidden;
+    background: var(--selector); border: 0.5px solid var(--line); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .thumb img:not([src]), .thumb img[src=""] { display: none; }
   .thumb.empty::after {
@@ -479,7 +483,14 @@
   #ring { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 12px;
     border: 2px solid var(--line-strong); border-left-color: var(--accent); }
   #ring[hidden] { display: none; }
-  body.busy #send svg { display: none; }
+  #send .ico { display: grid; place-items: center; }
+  #send .spin { display: none; }
+  body.sending #send .arrow { display: none; }
+  body.sending #send .spin { display: grid; }
+  .sendingSpinner { animation: input-sending 800ms linear infinite; }
+  @keyframes input-sending { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .sendingSpinner { animation-duration: 2400ms; } }
+  body.busy #send .arrow, body.busy #send .spin { display: none; }
   /* 停止：16 viewBox 里 10×10、rx 3（InputBar primaryStops 的矩形） */
   body.busy #send::after { content: ''; display: block; width: 10px; height: 10px;
     border-radius: 3px; background: currentColor; }
@@ -524,7 +535,7 @@
     background: rgba(255, 107, 94, .13); color: var(--danger);
   }
   #notice[hidden] { display: none; }
-  #notice.ok { background: rgba(63, 125, 251, .12); color: #3f7dfb; }
+  #notice.ok { background: var(--hover); color: var(--accent); }
   /* 底栏统计：N 轮 M 步 ｜ 累计用量 · 缓存命中（对齐 dsh 的 stats 那行） */
   #stats {
     flex: 0 0 auto; display: flex; gap: 10px; justify-content: space-between;
@@ -540,7 +551,7 @@
   #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
-    flex: 1 1 auto; font-size: 11px; color: #ffcf7a; align-self: center;
+    flex: 1 1 auto; font-size: 12px; color: var(--warn); align-self: center;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   button.act { border: none; padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fff; }
@@ -625,7 +636,8 @@
       </button>
       <span id="ring" hidden></span>
       <button id="send" title="发送消息" aria-label="发送消息">
-        <svg viewBox="0 0 16 16"><path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor"/></svg>
+        <span class="ico arrow"><svg viewBox="0 0 16 16"><path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor"/></svg></span>
+        <span class="ico spin"><svg class="sendingSpinner" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
       </button>
     </div>
   </div>
@@ -713,6 +725,13 @@
     const label = stop ? '停止生成' : '发送消息';
     btn.title = label;
     btn.setAttribute('aria-label', label);
+  }
+
+  let sendingTimer = 0;
+  function setSending(on) {
+    document.body.classList.toggle('sending', !!on);
+    clearTimeout(sendingTimer);
+    if (on) sendingTimer = setTimeout(() => document.body.classList.remove('sending'), 6000);
   }
 
   let noticeTimer = 0;
@@ -1002,6 +1021,7 @@
         const label = el('m-alpha-v');
         if (label) label.textContent = pct + '%';
       }
+      setSending(false);
       if (typeof v.notice === 'string' && v.notice) showNotice(v.notice, 7000);
       const threads = Array.isArray(v.threads) ? v.threads : (state.threads || []);
       state.threads = threads;
@@ -1323,16 +1343,11 @@
     const emptyState = list.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
     const item = document.createElement('div');
-    item.className = 'msg user';
-    const head = document.createElement('div');
-    head.className = 'msg-head';
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    const title = document.createElement('span');
-    title.className = 'msg-title';
-    title.textContent = text || (hasAttachment ? '（附件）' : '');
-    head.append(badge, title);
-    item.appendChild(head);
+    item.className = 'msg user no-title';
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+    body.textContent = text || (hasAttachment ? '（附件）' : '');
+    item.appendChild(body);
     list.appendChild(item);
     list.scrollTop = list.scrollHeight;
   }
@@ -1359,6 +1374,7 @@
     ask.blur();
     post('focus', { value: false });
     post('send', { text, image, file, session });
+    setSending(true);
     appendEcho(text, !!(image || file));
     if (!session) {
       // 完全不知道投给谁：请宿主重新读状态，并说明正在做什么
