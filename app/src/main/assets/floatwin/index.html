@@ -891,6 +891,36 @@
   body.fw:not(.has-text):not(.busy):not(.sending) #send { display: none; }
   body.fw #attach-bar { padding: 6px 2px 0; }
   #img { display: none; }
+
+  /* 语音：录音/识别时整行换成状态条 —— 红点+计时、实时音量波形、取消/完成 */
+  #voicebar { display: none; }
+  body.voice-on #compose > #ask, body.voice-on #compose .row > * { display: none !important; }
+  body.voice-on #voicebar {
+    display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0;
+    height: 28px; padding: 0 0 0 6px; font-size: 12px; line-height: 16px; color: var(--fw-text, var(--text));
+  }
+  #voicebar .vdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--danger, #e5484d); animation: fw-pulse 1.2s ease-in-out infinite; }
+  #voicebar .vlab { flex: none; white-space: nowrap; }
+  #voicebar .vtime { flex: none; font-variant-numeric: tabular-nums; color: var(--fw-sub, var(--muted)); }
+  #voicebar .vwave { flex: 1 1 auto; min-width: 0; height: 18px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; overflow: hidden; }
+  #voicebar .vwave i { flex: none; width: 2px; min-height: 2px; background: var(--fw-sub, var(--muted)); opacity: .55; transition: height .08s linear; }
+  #voicebar .vwave i.on { background: var(--accent); opacity: 1; }
+  #voicebar button {
+    flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px;
+    display: grid; place-items: center; background: transparent; color: var(--fw-sub, var(--muted));
+  }
+  #voicebar button svg { width: 14px; height: 14px; display: block; }
+  #voicebar #vdone { width: 26px; height: 26px; background: var(--accent); color: #fff; }
+  #voicebar .vspin { display: none; flex: none; width: 12px; height: 12px; }
+  #voicebar .vspin svg { width: 12px; height: 12px; display: block; animation: fw-spin .9s linear infinite; color: var(--accent); }
+  #voicebar[data-s="transcribing"] .vdot, #voicebar[data-s="transcribing"] .vtime,
+  #voicebar[data-s="transcribing"] .vwave i, #voicebar[data-s="transcribing"] #vdone { display: none; }
+  #voicebar[data-s="transcribing"] .vspin { display: block; }
+  #voicebar[data-s="error"] .vdot { animation: none; }
+  #voicebar[data-s="error"] .vlab { color: var(--danger, #e5484d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+  #voicebar[data-s="error"] .vtime, #voicebar[data-s="error"] .vwave, #voicebar[data-s="error"] #vdone { display: none; }
+  #voicebar[data-s="error"] .vdot { background: var(--danger, #e5484d); }
+  @keyframes fw-spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -972,6 +1002,15 @@
   </div>
   <div id="compose">
     <textarea id="ask" rows="1" placeholder="发消息或创建任务, / 调用指令, @ 文件或对话" autocomplete="off"></textarea>
+    <div id="voicebar" data-s="listening" role="status" aria-live="polite">
+      <span class="vdot"></span>
+      <span class="vspin"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity="0.3" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+      <span class="vlab">请说话</span>
+      <span class="vtime">0:00</span>
+      <span class="vwave"></span>
+      <button id="vcancel" type="button" title="取消" aria-label="取消语音"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 4L12 12M12 4L4 12"/></svg></button>
+      <button id="vdone" type="button" title="说完了" aria-label="结束录音并识别"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5L6.5 12L13 4.5"/></svg></button>
+    </div>
     <div class="row">
       <button class="round" id="pick" title="添加文件或调用指令" aria-label="添加文件或调用指令">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2V14"/><path d="M2 8H14"/></svg>
@@ -1338,19 +1377,21 @@
     },
     onVoice: function (text) {
       const box = el('ask');
+      voiceUi('idle');
       if (!text) return;
       box.value = (box.value ? box.value + ' ' : '') + text;
-      el('mic').classList.remove('listening');
+      box.dispatchEvent(new Event('input'));
       post('focus', { value: true });
       box.focus();
     },
     onVoiceState: function (state) {
-      el('mic').classList.toggle('listening', state === 'listening');
+      voiceUi(state);
+    },
+    onVoiceLevel: function (level, ms, loud, spoke) {
+      voiceLevel(level, ms, loud, spoke);
     },
     onVoiceError: function (message) {
-      el('mic').classList.remove('listening');
-      el('ask').placeholder = message || '没听清，再说一次';
-      setTimeout(() => { el('ask').placeholder = '问点什么…'; }, 2600);
+      voiceUi('error', message || '没听清，再说一次');
     },
     onFile: function (path, name) {
       pendingFile = path || '';
@@ -2194,11 +2235,70 @@
     post('refresh', {});
     showNotice('没有进行中的会话，请在 RCHA 里打开一个对话', 4000);
   });
+  // ── 语音状态条 ──
+  const VOICE_BARS = 28;
+  let voiceWave = [];
+  let voiceErrTimer = 0;
+  function voiceUi(state, message) {
+    const bar = el('voicebar');
+    const b = document.body;
+    clearTimeout(voiceErrTimer);
+    if (state === 'idle' || !state) {
+      b.classList.remove('voice-on');
+      bar.dataset.s = 'listening';
+      postFitSoon();
+      return;
+    }
+    b.classList.add('voice-on');
+    b.classList.remove('plus-open');
+    bar.dataset.s = state;
+    const lab = bar.querySelector('.vlab');
+    if (state === 'listening') {
+      voiceWave = [];
+      lab.textContent = '请说话';
+      bar.querySelector('.vtime').textContent = '0:00';
+      const wave = bar.querySelector('.vwave');
+      wave.innerHTML = '';
+      for (let i = 0; i < VOICE_BARS; i++) wave.appendChild(document.createElement('i'));
+    } else if (state === 'transcribing') {
+      lab.textContent = '识别中…';
+    } else if (state === 'error') {
+      lab.textContent = message || '没听清，再说一次';
+      lab.title = lab.textContent;
+      voiceErrTimer = setTimeout(() => voiceUi('idle'), 3200);
+    }
+    postFitSoon();
+  }
+  function voiceLevel(level, ms, loud, spoke) {
+    const bar = el('voicebar');
+    if (bar.dataset.s !== 'listening' || !document.body.classList.contains('voice-on')) return;
+    const s = Math.floor((ms || 0) / 1000);
+    bar.querySelector('.vtime').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    bar.querySelector('.vlab').textContent = !spoke ? '请说话' : (loud ? '正在听' : '停顿后自动结束');
+    voiceWave.push({ v: Math.max(0, Math.min(1, +level || 0)), on: !!loud });
+    if (voiceWave.length > VOICE_BARS) voiceWave.shift();
+    const bars = bar.querySelectorAll('.vwave i');
+    const off = bars.length - voiceWave.length;
+    bars.forEach((node, i) => {
+      const item = voiceWave[i - off];
+      node.style.height = item ? Math.max(2, Math.round(2 + item.v * 16)) + 'px' : '2px';
+      node.classList.toggle('on', !!(item && item.on));
+    });
+  }
+  function postFitSoon() {
+    try { if (typeof postFit === 'function') requestAnimationFrame(() => postFit()); } catch (e) {}
+  }
   onTap(el('mic'), e => {
     e.stopPropagation();
     document.body.classList.remove('plus-open');
-    el('ask').classList.remove('listening');
+    voiceUi('listening');
     post('voice', {});
+  });
+  onTap(el('vdone'), e => { e.stopPropagation(); post('voiceStop', {}); });
+  onTap(el('vcancel'), e => {
+    e.stopPropagation();
+    if (el('voicebar').dataset.s !== 'error') post('voiceCancel', {});
+    voiceUi('idle');
   });
   onTap(el('pick'), e => {
     e.stopPropagation();

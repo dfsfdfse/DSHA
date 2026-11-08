@@ -81,7 +81,11 @@ public final class FloatWindow {
   private static boolean pendingImage;
   private static boolean pendingFile;
   /** 录音状态：true=正在录；用 dsh 的 speechToText 转写，不走系统识别。 */
-  private static boolean recording;
+  private static volatile boolean recording;
+  /** 每次录音/取消递增；旧录音线程看到不一致就退出、不再回推。 */
+  private static volatile long voiceRun;
+  /** 正在等转写结果的录音序号；0=没有在等。 */
+  private static long voicePendingSeq;
   private static android.media.AudioRecord recorder;
   private static java.io.ByteArrayOutputStream pcm;
   private static long voiceSeq;
@@ -1542,6 +1546,14 @@ public final class FloatWindow {
           startVoice();
           return;
         }
+        case "voiceStop": {
+          if (recording) stopAndTranscribe();
+          return;
+        }
+        case "voiceCancel": {
+          cancelVoice();
+          return;
+        }
         case "pickImage": {
           pickImage();
           return;
@@ -1685,7 +1697,8 @@ public final class FloatWindow {
     }
   }
 
-  /** 语音：点一下开始录音，再点一下停止并把 WAV 交给容器里的 speechToText 转写。 */
+  /** 语音：点一下开始录音，再点一下停止并把 WAV 交给容器里的 speechToText 转写。
+   *  录音期间每 ~100ms 把音量/时长推给页面；说过话后静音 1.8 秒自动结束，最长 40 秒。 */
   private static void startVoice() {
     Context ctx = web == null ? null : web.getContext();
     if (ctx == null) return;
@@ -1695,7 +1708,7 @@ public final class FloatWindow {
     }
     if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
         != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限，请在系统设置里允许 RCHA 使用麦克风')");
       return;
     }
     try {
@@ -1704,26 +1717,90 @@ public final class FloatWindow {
           rate,
           android.media.AudioFormat.CHANNEL_IN_MONO,
           android.media.AudioFormat.ENCODING_PCM_16BIT);
-      recorder =
+      final android.media.AudioRecord rec =
           new android.media.AudioRecord(
               android.media.MediaRecorder.AudioSource.MIC,
               rate,
               android.media.AudioFormat.CHANNEL_IN_MONO,
               android.media.AudioFormat.ENCODING_PCM_16BIT,
               Math.max(min, rate));
-      recorder.startRecording();
-      pcm = new java.io.ByteArrayOutputStream();
+      if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
+        rec.release();
+        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('麦克风被占用，录音启动失败')");
+        return;
+      }
+      rec.startRecording();
+      final java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+      final long run = ++voiceRun;
+      recorder = rec;
+      pcm = buf;
       recording = true;
+      voicePendingSeq = 0;
       evaluate("window.dshFloat&&window.dshFloat.onVoiceState('listening')");
       Thread thread =
           new Thread(
               () -> {
-                byte[] buffer = new byte[3200];
-                while (recording) {
-                  int read = recorder == null ? -1 : recorder.read(buffer, 0, buffer.length);
+                byte[] buffer = new byte[1600]; // 50ms
+                long lastPush = 0;
+                double noise = -1;
+                boolean spoke = false;
+                long silentMs = 0;
+                String autoStop = null;
+                while (recording && voiceRun == run) {
+                  int read;
+                  try {
+                    read = rec.read(buffer, 0, buffer.length);
+                  } catch (Throwable error) {
+                    read = -1;
+                  }
                   if (read <= 0) break;
-                  pcm.write(buffer, 0, read);
-                  if (pcm.size() > 16000 * 2 * 40) break;  // 最长 40 秒
+                  synchronized (buf) {
+                    buf.write(buffer, 0, read);
+                  }
+                  long sum = 0;
+                  int n = read / 2;
+                  for (int i = 0; i + 1 < read; i += 2) {
+                    int v = (short) ((buffer[i] & 0xFF) | (buffer[i + 1] << 8));
+                    sum += (long) v * v;
+                  }
+                  double rms = n == 0 ? 0 : Math.sqrt((double) sum / n);
+                  long ms = buf.size() * 1000L / (16000 * 2);
+                  // 前 0.4 秒估环境噪声，之后缓慢跟随较低值
+                  if (ms <= 400) noise = noise < 0 ? rms : Math.min(noise, rms) * 0.5 + noise * 0.5;
+                  else if (rms < noise) noise = noise * 0.9 + rms * 0.1;
+                  double gate = Math.max(450, Math.max(noise, 0) * 2.6);
+                  boolean loud = rms > gate;
+                  if (loud) {
+                    spoke = true;
+                    silentMs = 0;
+                  } else if (ms > 400) {
+                    silentMs += read * 1000L / (16000 * 2);
+                  }
+                  double level = Math.max(0, Math.min(1, (Math.log10(1 + rms) - 2.2) / 1.6));
+                  if (ms - lastPush >= 90) {
+                    lastPush = ms;
+                    final String js =
+                        "window.dshFloat&&window.dshFloat.onVoiceLevel&&window.dshFloat.onVoiceLevel("
+                            + String.format(java.util.Locale.ROOT, "%.3f", level) + "," + ms + ","
+                            + (loud ? "true" : "false") + "," + (spoke ? "true" : "false") + ")";
+                    main.post(() -> { if (voiceRun == run && recording) evaluate(js); });
+                  }
+                  if (spoke && silentMs >= 1800) { autoStop = "silence"; break; }
+                  if (!spoke && ms >= 8000) { autoStop = "nothing"; break; }
+                  if (ms >= 40000) { autoStop = "limit"; break; }
+                }
+                final String why = autoStop;
+                if (why != null) {
+                  main.post(
+                      () -> {
+                        if (voiceRun != run || !recording) return;
+                        if ("nothing".equals(why)) {
+                          cancelVoice();
+                          evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有听到声音，已停止')");
+                        } else {
+                          stopAndTranscribe();
+                        }
+                      });
                 }
               },
               "float-voice");
@@ -1735,26 +1812,59 @@ public final class FloatWindow {
     }
   }
 
+  /** 关掉麦克风；不转写。 */
+  private static void releaseRecorder() {
+    recording = false;
+    voiceRun++;
+    android.media.AudioRecord rec = recorder;
+    recorder = null;
+    try {
+      if (rec != null) {
+        rec.stop();
+        rec.release();
+      }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** 取消录音或丢弃正在转写的结果。 */
+  private static void cancelVoice() {
+    releaseRecorder();
+    pcm = null;
+    voicePendingSeq = 0;
+    evaluate("window.dshFloat&&window.dshFloat.onVoiceState('idle')");
+  }
+
   /** 停止录音，把 PCM 包成 WAV 交给插件转写。 */
   private static void stopAndTranscribe() {
     Context ctx = web == null ? null : web.getContext();
     if (ctx == null) return;
-    recording = false;
-    try {
-      if (recorder != null) {
-        recorder.stop();
-        recorder.release();
-      }
-    } catch (Throwable ignored) {
-    }
-    recorder = null;
-    final byte[] pcmBytes = pcm == null ? new byte[0] : pcm.toByteArray();
+    java.io.ByteArrayOutputStream buf = pcm;
+    releaseRecorder();
     pcm = null;
-    if (pcmBytes.length < 3200) {
+    final byte[] pcmBytes;
+    if (buf == null) {
+      pcmBytes = new byte[0];
+    } else {
+      synchronized (buf) {
+        pcmBytes = buf.toByteArray();
+      }
+    }
+    if (pcmBytes.length < 16000 * 2 / 2) {
       evaluate("window.dshFloat&&window.dshFloat.onVoiceError('说话时间太短')");
       return;
     }
+    final long seq = System.currentTimeMillis();
+    voiceSeq = seq;
+    voicePendingSeq = seq;
     evaluate("window.dshFloat&&window.dshFloat.onVoiceState('transcribing')");
+    main.postDelayed(
+        () -> {
+          if (voicePendingSeq != seq) return;
+          voicePendingSeq = 0;
+          evaluate("window.dshFloat&&window.dshFloat.onVoiceError('识别超时，请重试')");
+        },
+        45000);
     Thread writer =
         new Thread(
             () -> {
@@ -1778,14 +1888,13 @@ public final class FloatWindow {
                 wav.write(pcmBytes, 0, dataLen);
                 String audio =
                     android.util.Base64.encodeToString(wav.toByteArray(), android.util.Base64.NO_WRAP);
-                voiceSeq = System.currentTimeMillis();
                 File file = guestFile(ctx, GUEST_VOICE);
-                if (file == null || file.getParentFile() == null) return;
+                if (file == null || file.getParentFile() == null) throw new java.io.IOException("no guest");
                 file.getParentFile().mkdirs();
                 File tmp = new File(file.getPath() + ".tmp");
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
                   out.write(
-                      new JSONObject().put("seq", voiceSeq).put("audio", audio).toString()
+                      new JSONObject().put("seq", seq).put("audio", audio).toString()
                           .getBytes(StandardCharsets.UTF_8));
                   out.flush();
                   out.getFD().sync();
@@ -1793,9 +1902,11 @@ public final class FloatWindow {
                 if (!tmp.renameTo(file)) tmp.renameTo(file);
               } catch (Throwable error) {
                 main.post(
-                    () ->
-                        evaluate(
-                            "window.dshFloat&&window.dshFloat.onVoiceError('语音发送失败')"));
+                    () -> {
+                      if (voicePendingSeq != seq) return;
+                      voicePendingSeq = 0;
+                      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('语音发送失败')");
+                    });
               }
             },
             "float-voice-upload");
@@ -1826,9 +1937,15 @@ public final class FloatWindow {
     if (json == null || json.isEmpty()) return;
     try {
       JSONObject data = new JSONObject(json);
-      String text = data.optString("text", "");
+      long seq = data.optLong("seq", 0);
+      // 只认当前在等的那次；取消过或超时的结果直接丢掉
+      if (voicePendingSeq == 0 || (seq != 0 && seq != voicePendingSeq)) return;
+      voicePendingSeq = 0;
+      String text = data.optString("text", "").trim();
       String error = data.optString("error", "");
-      if (!error.isEmpty()) {
+      if (error.isEmpty() && text.isEmpty()) {
+        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没听清，再说一次')");
+      } else if (!error.isEmpty()) {
         evaluate("window.dshFloat&&window.dshFloat.onVoiceError(" + JSONObject.quote(error) + ")");
       } else if (!text.isEmpty()) {
         evaluate("window.dshFloat&&window.dshFloat.onVoice(" + JSONObject.quote(text) + ")");
@@ -1953,15 +2070,9 @@ public final class FloatWindow {
       main.removeCallbacks(pendingBlur);
       pendingBlur = null;
     }
-    recording = false;
-    try {
-      if (recorder != null) {
-        recorder.stop();
-        recorder.release();
-      }
-    } catch (Throwable ignored) {
-    }
-    recorder = null;
+    releaseRecorder();
+    pcm = null;
+    voicePendingSeq = 0;
     if (web != null) userClosed = true;
     realPage = false;
     pendingFileChooser = null;
