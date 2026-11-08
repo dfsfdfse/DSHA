@@ -35,6 +35,9 @@
     --meter-tools: rgb(167, 139, 250);
     --meter-msg: rgb(77, 147, 248);
   }
+  body.fw.dark #card {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .4), 0 2px 8px rgba(0, 0, 0, .28);
+  }
   body.dark {
     --bg-rgb: 22, 25, 31;
     --fg: rgb(249, 250, 251);
@@ -719,6 +722,10 @@
   body.fw #perm-menu, body.fw #model-menu { display: none !important; }
   body.t1 #cmd-menu, body.t1 #at-menu, body.t1 #notice { display: none !important; }
   body.fw {
+    /* 外圈留白给阴影：窗口是不透明的矩形，卡片贴着窗口边画阴影会被裁没。
+       这个值必须和 FloatWindow.SHADOW_DP 一致（页面按它把高度报给宿主）。 */
+    padding: 12px;
+    box-sizing: border-box;
     --fw-bg: rgba(255, 255, 255, var(--alpha, .8));
     --fw-line: rgba(0, 0, 0, .06);
     --fw-field: rgba(255, 255, 255, .72);
@@ -742,7 +749,8 @@
     padding: 0 8px 8px;
     background: var(--fw-bg);
     border: 0.5px solid var(--fw-line);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
+    /* 外圈留了 12px 透明边，阴影才不会被窗口边界裁掉 */
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .12);
     color: var(--fw-text);
   }
   body.t1 #card { height: auto; }
@@ -754,9 +762,9 @@
     margin: 0 -8px 6px; padding: 0 calc(var(--fw-btns) + 4px) 0 12px;
     border-bottom: 0.5px solid var(--fw-line);
   }
+  /* 标签自己收缩并横向滚动；+、会话列表、计时都不参与压缩，否则计时会被挤没 */
   #fwtabs {
-    display: flex; align-items: stretch; gap: 14px; min-width: 0; flex: 0 1 auto;
-    max-width: calc(100% - 76px);
+    display: flex; align-items: stretch; gap: 14px; min-width: 0; flex: 1 1 auto;
     overflow-x: auto; scrollbar-width: none;
   }
   #fwtabs::-webkit-scrollbar { display: none; }
@@ -777,7 +785,7 @@
   .fwtab.new { padding: 0 2px; margin-left: -4px; }
   .fwtab.new svg { width: 12px; height: 12px; display: block; }
   #fwstat {
-    flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end;
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end;
     font-size: 11px; color: var(--fw-sub); white-space: nowrap; overflow: hidden;
     font-variant-numeric: tabular-nums;
   }
@@ -2175,10 +2183,13 @@
   }
 
   /** 迷你档：把卡片的实际高度报给宿主，窗口贴着内容长短。 */
+  /** 卡片外圈的阴影留白（与 CSS 里 body.fw 的 padding 一致）。 */
+  const SHADOW_PAD = 12;
+
   function postFit() {
     if (tier !== 1) return;
     requestAnimationFrame(() => {
-      const h = Math.ceil(el('card').getBoundingClientRect().height);
+      const h = Math.ceil(el('card').getBoundingClientRect().height) + SHADOW_PAD * 2;
       if (!h || Math.abs(h - lastFit) < 2) return;
       lastFit = h;
       post('fit', { h });

@@ -212,6 +212,8 @@ public final class FloatWindow {
   /** 完整档单独记高度：它比标准档高得多，共用一个值会互相覆盖。 */
   private static final String K_H3 = "floatwin_h3";
   private static final int MINI_DP = 112;
+  /** 卡片外圈留白，给阴影留位置；必须和页面里的 SHADOW_PAD / body.fw padding 一致。 */
+  private static final int SHADOW_DP = 12;
   private static int tier = 1;
   private static View btnShrink;
   private static View btnExpand;
@@ -632,7 +634,8 @@ public final class FloatWindow {
     FrameLayout.LayoutParams stripParams =
         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, HEAD_DP));
     stripParams.gravity = Gravity.TOP;
-    stripParams.rightMargin = dp(app, 104);
+    stripParams.rightMargin = dp(app, SHADOW_DP + 104);
+    stripParams.topMargin = dp(app, SHADOW_DP);
     frame.addView(strip, stripParams);
     attachMove(strip, frame);
     dragStrip = strip;
@@ -656,7 +659,8 @@ public final class FloatWindow {
     for (View b : new View[] {btnShrink, btnExpand, btnMenu, btnOpen, btnClose}) {
       FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
       bp.gravity = Gravity.TOP | Gravity.END;
-      bp.topMargin = dp(app, 2);
+      bp.topMargin = dp(app, SHADOW_DP + 2);
+      bp.rightMargin = dp(app, SHADOW_DP);
       frame.addView(b, bp);
     }
 
@@ -665,8 +669,9 @@ public final class FloatWindow {
     FrameLayout.LayoutParams rightParams =
         new FrameLayout.LayoutParams(dp(app, EDGE_DP), ViewGroup.LayoutParams.MATCH_PARENT);
     rightParams.gravity = Gravity.END | Gravity.TOP;
-    rightParams.topMargin = dp(app, HEAD_DP);
-    rightParams.bottomMargin = dp(app, EDGE_DP);
+    rightParams.topMargin = dp(app, SHADOW_DP + HEAD_DP);
+    rightParams.bottomMargin = dp(app, SHADOW_DP + EDGE_DP);
+    rightParams.rightMargin = dp(app, SHADOW_DP);
     frame.addView(rightEdge, rightParams);
     attachResize(rightEdge, frame, true, false);
 
@@ -674,7 +679,9 @@ public final class FloatWindow {
     FrameLayout.LayoutParams bottomParams =
         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, EDGE_DP));
     bottomParams.gravity = Gravity.BOTTOM | Gravity.START;
-    bottomParams.rightMargin = dp(app, EDGE_DP);
+    bottomParams.leftMargin = dp(app, SHADOW_DP);
+    bottomParams.rightMargin = dp(app, SHADOW_DP + EDGE_DP);
+    bottomParams.bottomMargin = dp(app, SHADOW_DP);
     frame.addView(bottom, bottomParams);
     attachResize(bottom, frame, false, true);
     bottomEdge = bottom;
@@ -682,6 +689,8 @@ public final class FloatWindow {
     View corner = transparent(app);
     FrameLayout.LayoutParams cornerParams = new FrameLayout.LayoutParams(dp(app, HANDLE_DP), dp(app, HANDLE_DP));
     cornerParams.gravity = Gravity.BOTTOM | Gravity.END;
+    cornerParams.bottomMargin = dp(app, SHADOW_DP);
+    cornerParams.rightMargin = dp(app, SHADOW_DP);
     frame.addView(corner, cornerParams);
     attachResize(corner, frame, true, true);
     cornerHandle = corner;
@@ -1513,17 +1522,18 @@ public final class FloatWindow {
       b.setVisibility(visible[i] ? View.VISIBLE : View.GONE);
       if (!visible[i]) continue;
       FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) b.getLayoutParams();
-      lp.rightMargin = dp(app, 6 + 28 * slot);
+      lp.rightMargin = dp(app, SHADOW_DP + 6 + 28 * slot);
       b.setLayoutParams(lp);
       slot++;
     }
     if (dragStrip != null) {
       FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams) dragStrip.getLayoutParams();
-      sp.rightMargin = dp(app, 10 + 28 * slot);
+      sp.rightMargin = dp(app, SHADOW_DP + 10 + 28 * slot);
       // 自绘页（1、2 档）顶行 28：左边是会话标签，拖动区从标签右边开始（页面报 dragzone）；
       // dsh 页面（3 档）整条都是拖动区
       sp.height = dp(app, tier == 3 ? HEAD_DP : 28);
-      if (tier == 3) sp.leftMargin = 0;
+      sp.leftMargin = tier == 3 ? dp(app, SHADOW_DP) : sp.leftMargin;
+      sp.topMargin = dp(app, SHADOW_DP);
       dragStrip.setLayoutParams(sp);
     }
     // 迷你档高度由内容决定，竖向缩放手柄收起，免得盖住输入栏
