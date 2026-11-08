@@ -417,6 +417,8 @@ async function loadHistory(sessionId) {
     for (const event of events) {
       const data = event?.data || {}
       if (event.type === 'user/message') {
+        const sourceKind = String(data?.source?.kind || data?.message?.source?.kind || '')
+        if (sourceKind && sourceKind !== 'user') continue
         const text = textOf(data.message?.content || data.content)
         if (text) b.messages.push({ kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
       } else if (event.type === 'assistant/message') {
@@ -827,6 +829,11 @@ export function apply(ctx) {
       }
 
       if (type === 'user/message') {
+        // dsh 的 GUI 也这么分：source.kind === 'user' 才是人说的话，
+        // 其余（运行时上下文、checkpoint、goal round 等）在对话里以「上下文行」出现，
+        // 悬浮窗空间小，直接不列出来。
+        const sourceKind = String(data?.source?.kind || data?.message?.source?.kind || '')
+        if (sourceKind && sourceKind !== 'user') return
         const b = bucket(key)
         b.session = session
         const parts = (data?.message && data.message.content) || data?.content || []

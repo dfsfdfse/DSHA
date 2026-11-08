@@ -26,9 +26,10 @@
     --warn-soft: rgb(247, 173, 49);    /* --dsw-alias-state-warn-secondary */
     --font: var(--dsh-font, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue',
       Arial, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif);
-    --fs-content: 14px;                /* --dsh-content-font-size */
-    --lh-content: 24px;
-    --fs-secondary: 13px;              /* --dsh-content-font-size-secondary */
+    /* 悬浮窗比 dsh 的整页窄，字阶同比例收一档：13/20 正文、12 次要 */
+    --fs-content: 13px;
+    --lh-content: 20px;
+    --fs-secondary: 12px;
     /* 上下文分段色：system=bluish-400 / tools=violet-400 / messages=blue-450 */
     --meter-sys: rgb(173, 178, 184);
     --meter-tools: rgb(167, 139, 250);
@@ -93,7 +94,7 @@
   #title {
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     padding: 4px 8px; border-radius: 12px;
-    font-size: 14px; line-height: 20px; font-weight: 500;
+    font-size: 13px; line-height: 18px; font-weight: 500;
     color: var(--fg);
   }
   #live, #count {
@@ -132,7 +133,7 @@
   /* 会话标签：dsh 的工具栏控件不带描边，只有悬停/选中底色 */
   .tab {
     flex: 0 0 auto; max-width: 140px;
-    font-size: 12px; line-height: 18px; color: var(--tertiary);
+    font-size: 11.5px; line-height: 16px; color: var(--tertiary);
     background: transparent; border: none; border-radius: 8px;
     padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
@@ -202,7 +203,7 @@
   .msg.open .msg-chev { transform: rotate(180deg); }
   .msg-time {
     flex: 0 0 auto; align-self: flex-start; margin-top: 2px;
-    font-size: 12px; color: var(--caption); font-variant-numeric: tabular-nums;
+    font-size: 11px; color: var(--caption); font-variant-numeric: tabular-nums;
   }
   /* 正文默认就显示：dsh 那边是直接读回复，不是先看一行标题再点开 */
   .msg-body {
@@ -226,7 +227,7 @@
   .msg.process { border-bottom: 0.5px solid var(--line); }
   .msg.process .process-head {
     align-items: center; height: 33px; padding: 0 0 8px;
-    color: var(--tertiary); font-size: var(--fs-content);
+    color: var(--tertiary); font-size: 13px;
   }
   .msg.process .msg-title { -webkit-line-clamp: 1; color: inherit; font-size: inherit; }
   .msg.process .msg-chev { width: 14px; height: 14px; margin-left: 4px; margin-top: 0; }
@@ -377,7 +378,7 @@
     background: var(--field);
     border: 1px solid var(--line);
     box-shadow: 0 12px 30px rgba(0,0,0,.16);
-    font-size: 12px; line-height: 18px; color: var(--fg);
+    font-size: 11.5px; line-height: 17px; color: var(--fg);
   }
   #usage-card[hidden] { display: none; }
   .uhead { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
@@ -413,11 +414,11 @@
   #goalbar .gglyph { display: inline-flex; flex: none; color: var(--muted); }
   #goalbar .gglyph svg { width: 16px; height: 16px; }
   #goalbar .glabel {
-    flex: none; font-size: 13px; line-height: 24px; font-weight: 500; color: var(--fg);
+    flex: none; font-size: 12px; line-height: 22px; font-weight: 500; color: var(--fg);
   }
   #goalbar .gobj {
     flex: 1 1 auto; min-width: 0; overflow: hidden;
-    font-size: 13px; line-height: 20px; color: var(--muted);
+    font-size: 12px; line-height: 18px; color: var(--muted);
     text-overflow: ellipsis; white-space: nowrap;
   }
   #goalbar .gactions { display: flex; align-items: center; gap: 10px; flex: none; }
@@ -437,14 +438,14 @@
   #meter {
     display: inline-flex; align-items: center; gap: 6px; flex: none;
     padding: 1px 8px; border: none; border-radius: 8px; background: transparent;
-    color: var(--tertiary); font-family: inherit; font-size: var(--fs-secondary);
+    color: var(--tertiary); font-family: inherit; font-size: 12px;
     font-variant-numeric: tabular-nums;
   }
   #meter[hidden] { display: none; }
   #meter[aria-expanded='true'] { background: var(--selector); color: var(--muted); }
   #stats {
     flex: 1 1 auto; display: flex; gap: 10px; justify-content: flex-end;
-    font-size: 12px; color: var(--tertiary); font-variant-numeric: tabular-nums;
+    font-size: 11.5px; color: var(--tertiary); font-variant-numeric: tabular-nums;
   }
   #stats[hidden] { display: none; }
 
@@ -521,9 +522,6 @@
     display: grid; place-items: center; padding: 0; flex: 0 0 auto;
   }
   #send svg { width: 16px; height: 16px; display: block; }
-  #ring { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 12px;
-    border: 2px solid var(--line-strong); border-left-color: var(--accent); }
-  #ring[hidden] { display: none; }
   #send .ico { display: grid; place-items: center; }
   #send .spin { display: none; }
   body.sending #send .arrow { display: none; }
@@ -540,7 +538,7 @@
     background: transparent; border: none; outline: none;
     color: var(--fg);
     /* 触屏用 16px，避免 WebView 聚焦时自动缩放（InputBar 的 pointer:coarse 规则） */
-    font-size: 16px; line-height: var(--lh-content);
+    font-size: 14px; line-height: var(--lh-content);
     padding: 4px 8px 0 14px;
     font-family: inherit;
   }
@@ -572,7 +570,7 @@
   /* 操作提示条：发送失败 / 没会话 / 正在唤起时把原因写出来，不能点了没反应 */
   #notice {
     flex: 0 0 auto; margin: 0 10px 6px; padding: 5px 8px;
-    font-size: 11.5px; line-height: 16px; border-radius: 6px;
+    font-size: 11px; line-height: 15px; border-radius: 6px;
     background: rgba(255, 107, 94, .13); color: var(--danger);
   }
   #notice[hidden] { display: none; }
@@ -677,7 +675,6 @@
       <button class="round flat" id="mic" title="语音" aria-label="语音">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="5.15" y="1.65" width="5.7" height="8.7" rx="2.85"/><path d="M2.35 8.675C3.075 11.3 5.2 13.125 8 13.125C10.8 13.125 12.925 11.3 13.65 8.675M8 13.125V15"/></svg>
       </button>
-      <span id="ring" hidden></span>
       <button id="send" title="发送消息" aria-label="发送消息">
         <span class="ico arrow"><svg viewBox="0 0 16 16"><path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor"/></svg></span>
         <span class="ico spin"><svg class="sendingSpinner" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
@@ -1107,7 +1104,6 @@
       el('title').textContent = task.title || 'RCHA';
       el('compose').classList.toggle('compact', el('compose').clientWidth > 0 && el('compose').clientWidth < 460);
       refreshSendMode();
-      el('ring').hidden = !!task.done;
       el('live').hidden = !!task.done;
       renderUsage(task.usage);
       state.modelName = task.model ? String(task.model) : (state.modelName || '');
