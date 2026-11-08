@@ -123,6 +123,18 @@ let cooldownUntil = 0
  *  「思考内容无法显示」就是这个。 */
 let skipReasoningUntil = 0
 
+/** 子会话（subagent）归到父会话的桶里，返回 {key, depth}。 */
+function nestOf(ownKey, session) {
+  try {
+    const parentId = String(session?.header?.parentSession || '')
+    if (!parentId) return { key: ownKey, depth: 0 }
+    for (const [k] of state) {
+      if (fullIdOf(k) === parentId) return { key: k, depth: 1 }
+    }
+  } catch { }
+  return { key: ownKey, depth: 0 }
+}
+
 function sessionKey(session) {
   try {
     const raw = session?.id ?? session?.sessionId ?? session?.key ?? ''
@@ -421,14 +433,14 @@ async function loadHistory(sessionId) {
         const sourceKind = String(data?.source?.kind || data?.message?.source?.kind || '')
         if (sourceKind && sourceKind !== 'user') continue
         const text = textOf(data.message?.content || data.content)
-        if (text) b.messages.push({ kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+        if (text) b.messages.push({ depth, kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
       } else if (event.type === 'assistant/message') {
         const text = textOf(data.message?.content || data.content)
-        if (text) b.messages.push({ kind: 'assistant', title: text.slice(0, 48), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+        if (text) b.messages.push({ depth, kind: 'assistant', title: text.slice(0, 48), text: text.slice(0, 4000), at: Number(event.at) || 0 })
       } else if (event.type === 'tool/call') {
         const label = toolLabel(data.name)
         const detail = toolDetail(data.arguments)
-        b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
+        b.messages.push({ depth, kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
       }
     }
     b.messages = b.messages.slice(-40)
@@ -681,7 +693,7 @@ function duration(ms) {
 }
 
 /** 把攒着的一段思考落成一条「思考」消息；同一轮里连续多段就并进同一条。 */
-function pushThink(b) {
+function pushThink(b, depth) {
   const acc = String(b.thinkAcc || '').trim()
   b.thinkAcc = ''
   if (!acc) return
@@ -691,7 +703,7 @@ function pushThink(b) {
     last.at = Date.now()
     return
   }
-  b.messages.push({ kind: 'think', title: '思考', text: acc.slice(0, 4000), at: Date.now() })
+  b.messages.push({ depth, kind: 'think', title: '思考', text: acc.slice(0, 4000), at: Date.now() })
   if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
 }
 
@@ -789,7 +801,9 @@ export function apply(ctx) {
   const onEvent = (session, event) => {
     try {
       if (!bridgeToken()) return
-      const key = sessionKey(session)
+      const nest = nestOf(sessionKey(session), session)
+      const key = nest.key
+      const depth = nest.depth
       const type = event?.type
       const data = event?.data
 
@@ -812,7 +826,7 @@ export function apply(ctx) {
         const piece = chunk.text
         if (!piece) return
         const b = bucket(key)
-        b.session = session
+        if (!depth) b.session = session
         // 正文与思考各留一条缓冲：思考结束转正文时，两段不该被拼成一句
         if (isThink) {
           b.think = tail((b.think || '') + piece)
@@ -820,7 +834,7 @@ export function apply(ctx) {
           schedule(key, 'reasoning', () => b.think)
         } else {
           if (b.thinkAcc) {
-            pushThink(b)
+            pushThink(b, depth)
           }
           b.line = tail(b.line + piece)
           // 不把原始 token 送到悬浮窗：只表达「正在生成」。
@@ -839,14 +853,14 @@ export function apply(ctx) {
         const sourceKind = String(data?.source?.kind || data?.message?.source?.kind || '')
         if (sourceKind && sourceKind !== 'user') return
         const b = bucket(key)
-        b.session = session
+        if (!depth) b.session = session
         const parts = (data?.message && data.message.content) || data?.content || []
         const text = Array.isArray(parts)
           ? parts.filter(p => p && p.type === 'text').map(p => p.text).join(' ').trim()
           : ''
         if (!text) return
         b.updated = Date.now()
-        b.messages.push({
+        b.messages.push({ depth,
           kind: 'user',
           title: text.slice(0, 120),
           text: text.slice(0, 4000),
@@ -859,7 +873,7 @@ export function apply(ctx) {
 
       if (type === 'tool/call') {
         const b = bucket(key)
-        b.session = session
+        if (!depth) b.session = session
         // 「正在执行命令」看不出到底要跑什么 —— 把命令原文（或路径/模式）带上，
         // 这也是悬浮条上就地批准危险命令时唯一的判断依据。
         const label = toolLabel(data?.name)
@@ -872,7 +886,7 @@ export function apply(ctx) {
           b.timer = undefined
         }
         if (b.thinkAcc) {
-          pushThink(b)
+          pushThink(b, depth)
         }
         b.steps = (b.steps || 0) + 1
         b.updated = Date.now()
@@ -886,7 +900,7 @@ export function apply(ctx) {
           last.text = detail || last.text
           last.at = Date.now()
         } else {
-          b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Date.now() })
+          b.messages.push({ depth, kind: 'tool', title: label, text: detail || '', at: Date.now() })
         }
         if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         scheduleFloat(key, b)
@@ -916,7 +930,7 @@ export function apply(ctx) {
 
       if (type === 'turn/start') {
         const b = bucket(key)
-        b.session = session
+        if (!depth) b.session = session
         b.line = ''
         b.think = ''
         b.thinkAcc = ''
@@ -932,15 +946,15 @@ export function apply(ctx) {
 
       if (type === 'turn/end') {
         const b = bucket(key)
-        b.session = session
+        if (!depth) b.session = session
         if (b.timer) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
-        if (b.thinkAcc) pushThink(b)
+        if (b.thinkAcc) pushThink(b, depth)
         const finished = (b.line || '').replace(/\s+/g, ' ').trim()
         if (finished) {
-          b.messages.push({
+          b.messages.push({ depth,
             kind: 'assistant',
             title: finished.slice(0, 48),
             text: finished.slice(0, 4000),
@@ -968,7 +982,7 @@ export function apply(ctx) {
           }
         } catch { }
         if (spent >= 1000) {
-          b.messages.push({ kind: 'note', title: '已完成', text: '已完成，用时 ' + duration(spent), at: Date.now() })
+          b.messages.push({ depth, kind: 'note', title: '已完成', text: '已完成，用时 ' + duration(spent), at: Date.now() })
           if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         }
         void maybeRefreshThreads()

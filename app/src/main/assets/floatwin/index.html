@@ -1397,6 +1397,7 @@
     const item = document.createElement('div');
     item.className = 'msg ' + kind;
     item.dataset.id = task.id + ':' + index;
+    if (m.depth) item.style.marginLeft = (m.depth * 14) + 'px';
     if (kind === 'note') {
       item.appendChild(Object.assign(document.createElement('div'), {
         className: 'msg-note',
