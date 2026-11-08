@@ -171,54 +171,40 @@ public final class FloatWebWindow {
     root.setAlpha(a);
   }
 
-  /** 顶部拖动条 + 关闭按钮，最省事的一层原生控件。 */
+  /** 顶部一层：透明拖动区 + 右上角两个半透明小圆钮（≡ / ×），尽量不挡页面。 */
   private View bar() {
     FrameLayout bar = new FrameLayout(app);
     View strip = new View(app);
-    strip.setBackgroundColor(0x33000000);
     bar.addView(
         strip,
         new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-    android.widget.TextView title = new android.widget.TextView(app);
-    title.setText(id);
-    title.setTextSize(11);
-    title.setTextColor(0xFFFFFFFF);
-    title.setPadding(dp(8), 0, dp(40), 0);
-    title.setGravity(Gravity.CENTER_VERTICAL);
-    bar.addView(
-        title,
-        new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-    android.widget.TextView settings = new android.widget.TextView(app);
-    settings.setText("≡");
-    settings.setTextSize(14);
-    settings.setTextColor(0xFFFFFFFF);
-    settings.setGravity(Gravity.CENTER);
-    FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(28), dp(28));
-    sp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+    android.widget.TextView settings = pill("≡");
+    FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(24), dp(24));
+    sp.gravity = Gravity.TOP | Gravity.END;
+    sp.topMargin = dp(3);
     sp.rightMargin = dp(30);
     bar.addView(settings, sp);
     settings.setOnClickListener(
         v -> {
-          if (menu != null) menu.setVisibility(menu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+          if (menu != null)
+            menu.setVisibility(menu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         });
 
-    android.widget.TextView close = new android.widget.TextView(app);
-    close.setText("×");
-    close.setTextSize(14);
-    close.setTextColor(0xFFFFFFFF);
-    close.setGravity(Gravity.CENTER);
-    FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(28), dp(28));
-    cp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+    android.widget.TextView close = pill("×");
+    FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(24), dp(24));
+    cp.gravity = Gravity.TOP | Gravity.END;
+    cp.topMargin = dp(3);
+    cp.rightMargin = dp(4);
     bar.addView(close, cp);
-    close.setOnClickListener(v -> {
-      FloatWebWindow win = OPEN.remove(id);
-      if (win != null) win.destroy();
-    });
+    close.setOnClickListener(
+        v -> {
+          FloatWebWindow win = OPEN.remove(id);
+          if (win != null) win.destroy();
+        });
 
-    bar.setOnTouchListener(
+    strip.setOnTouchListener(
         (v, event) -> {
           switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -256,12 +242,30 @@ public final class FloatWebWindow {
     return bar;
   }
 
+  private android.widget.TextView pill(String label) {
+    android.widget.TextView view = new android.widget.TextView(app);
+    view.setText(label);
+    view.setTextSize(12);
+    view.setTextColor(0xCCFFFFFF);
+    view.setGravity(Gravity.CENTER);
+    android.graphics.drawable.GradientDrawable bg =
+        new android.graphics.drawable.GradientDrawable();
+    bg.setColor(0x55000000);
+    bg.setCornerRadius(dp(12));
+    view.setBackground(bg);
+    return view;
+  }
+
   /** 右上角 ≡ 展开的设置面板：透明度滑杆。 */
   private View menuPanel() {
     menu = new android.widget.LinearLayout(app);
     menu.setOrientation(android.widget.LinearLayout.VERTICAL);
-    menu.setBackgroundColor(0xF2161A22);
-    menu.setPadding(dp(12), dp(10), dp(12), dp(10));
+    android.graphics.drawable.GradientDrawable card = new android.graphics.drawable.GradientDrawable();
+    card.setColor(0xF2161A22);
+    card.setCornerRadius(dp(12));
+    card.setStroke(dp(1), 0x1FFFFFFF);
+    menu.setBackground(card);
+    menu.setPadding(dp(10), dp(8), dp(10), dp(8));
     menu.setVisibility(View.GONE);
 
     android.widget.TextView label = new android.widget.TextView(app);
@@ -306,10 +310,10 @@ public final class FloatWebWindow {
 
   private FrameLayout.LayoutParams menuLayoutParams() {
     FrameLayout.LayoutParams lp =
-        new FrameLayout.LayoutParams(dp(184), ViewGroup.LayoutParams.WRAP_CONTENT);
+        new FrameLayout.LayoutParams(dp(168), ViewGroup.LayoutParams.WRAP_CONTENT);
     lp.gravity = Gravity.TOP | Gravity.END;
-    lp.topMargin = dp(HEAD_DP + 4);
-    lp.rightMargin = dp(6);
+    lp.topMargin = dp(HEAD_DP + 2);
+    lp.rightMargin = dp(4);
     return lp;
   }
 
