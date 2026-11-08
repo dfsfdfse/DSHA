@@ -204,7 +204,7 @@ public final class FloatWindow {
           if (alpha > 0) {
             prefs(app)
                 .edit()
-                .putInt("floatwin_alpha", Math.max(55, Math.min(100, alpha)))
+                .putInt("floatwin_alpha", Math.max(90, Math.min(100, alpha)))
                 .putBoolean("floatwin_alpha_user", true)
                 .apply();
           }
@@ -601,15 +601,16 @@ public final class FloatWindow {
   private static int alphaPercent(Context app) {
     try {
       SharedPreferences p = prefs(app);
-      int alpha = p.getInt("floatwin_alpha", 92);
-      // 旧版本默认 60%，而用户从没动过滑杆：抬到看得清的默认值，只迁移一次。
-      if (alpha == 60 && !p.getBoolean("floatwin_alpha_user", false)) {
-        alpha = 92;
+      int alpha = p.getInt("floatwin_alpha", 100);
+      // 低于 90% 时桌面图标会透到文字上，读不下去：统一抬到 100% 并写回，
+      // 这样旧版本留下的 60% / 92% 都能一次纠正（可再次用手动滑杆调低到 90%）。
+      if (alpha < 90) {
+        alpha = 100;
         p.edit().putInt("floatwin_alpha", alpha).apply();
       }
-      return Math.max(55, Math.min(100, alpha));
+      return Math.max(90, Math.min(100, alpha));
     } catch (Throwable error) {
-      return 92;
+      return 100;
     }
   }
 
@@ -829,7 +830,7 @@ public final class FloatWindow {
           return;
         case "alpha": {
           Context ctx = web == null ? null : web.getContext();
-          int alpha = Math.max(55, Math.min(100, p.optInt("value", 92)));
+          int alpha = Math.max(90, Math.min(100, p.optInt("value", 100)));
           if (ctx != null) {
             prefs(ctx)
                 .edit()

@@ -100,10 +100,19 @@
   #live, #count {
     flex: none; font-size: 12px; line-height: 18px; color: var(--tertiary);
   }
-  #dot {
-    flex: none; width: 4px; height: 4px; border-radius: 1px; background: var(--accent);
-    margin-left: 8px;
+  #head .headspacer { flex: 1 1 auto; min-width: 0; }
+  #perm-head {
+    flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 4px; border: none; border-radius: 6px;
+    background: transparent; color: var(--muted); font-family: inherit; font-size: 12px;
   }
+  #perm-head[hidden] { display: none; }
+  #perm-head .pglyph { display: inline-flex; flex: none; }
+  #perm-head .pglyph svg { width: 13px; height: 13px; }
+  #perm-head .name { display: none; }
+  #perm-head .chev { width: 10px; height: 10px; color: var(--caption); flex: none; }
+  #head #meter { height: 22px; padding: 0 6px; gap: 4px; font-size: 12px; }
+  #head #meter svg.chev { width: 10px; height: 10px; color: var(--caption); }
   #dot { width: 6px; height: 6px; background: var(--accent); flex: 0 0 auto; }
   body.busy #dot { animation: fw-pulse 1.3s ease-in-out infinite; }
   @keyframes fw-pulse { 0%,100% { opacity: 1 } 50% { opacity: .28 } }
@@ -121,8 +130,10 @@
 
   #tabs {
     flex: 0 0 auto;
-    display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
-    margin: 4px 0 6px; padding-bottom: 2px; scrollbar-width: none;
+    display: flex; gap: 16px; overflow-x: auto; overflow-y: hidden;
+    margin: 2px 0 4px; padding-bottom: 0;
+    border-bottom: 0.5px solid var(--line-soft);
+    scrollbar-width: none;
   }
   #tabs::-webkit-scrollbar { display: none; }
   #tabs[hidden] { display: none; }
@@ -132,18 +143,22 @@
   }
   /* 会话标签：dsh 的工具栏控件不带描边，只有悬停/选中底色 */
   .tab {
-    flex: 0 0 auto; max-width: 140px;
-    font-size: 11.5px; line-height: 16px; color: var(--tertiary);
-    background: transparent; border: none; border-radius: 8px;
-    padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    position: relative;
+    flex: 0 0 auto; max-width: 160px;
+    font-size: 13px; line-height: 20px; color: var(--tertiary);
+    background: transparent; border: none; border-radius: 0;
+    padding: 2px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .tab.active { color: var(--fg); background: var(--hover); font-weight: 500; }
+  .tab.active { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
 
   /* 消息列表：填满剩余高度并滚动，样式对齐聊天记录 */
   #list {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overscroll-behavior: contain;
     border-top: 0.5px solid var(--line-soft); margin-top: 2px;
+    /* 底边渐隐：滚到边界时文字是淡出，不是被硬切一半（dsh 的聊天滚动区同款） */
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%);
   }
   #list::-webkit-scrollbar { width: 4px; }
   #list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.24); }
@@ -236,6 +251,12 @@
   .process-body { display: none; padding-left: 10px; }
   .msg.process.open .process-body { display: block; }
   .process-body .msg { border-bottom: none; }
+  /* 步骤行：dsh 轨迹那样「图标 + 标签 · 参数」，单行、密排 */
+  .msg.step .msg-head { padding: 3px 0; align-items: center; }
+  .msg.step .msg-title { -webkit-line-clamp: 1; font-size: 12.5px; line-height: 18px; }
+  .msg.step .msg-time { font-size: 10.5px; margin-top: 0; }
+  .step-ico { flex: 0 0 14px; width: 14px; height: 14px; color: var(--tertiary); margin-top: 2px; }
+  .step-ico svg { width: 14px; height: 14px; display: block; }
   /* 过程组里的步骤只留一行标题，正文（参数原文）不重复铺开 */
   .process-body .msg-body { display: none !important; }
   .process-body .msg.open .msg-body { display: block !important; }
@@ -249,7 +270,7 @@
   .msg.note { border-bottom: none; padding: 2px 0 6px; text-align: center; }
   .msg-note { font-size: 12px; color: var(--tertiary); }
   .msg.open .msg-body {
-    display: block; -webkit-line-clamp: unset; max-height: 42vh; overflow-y: auto;
+    display: block; -webkit-line-clamp: unset; max-height: none; overflow: visible;
   }
   /* 正文里的 Markdown 基本样式，和 dsh 的阅读效果对齐 */
   .msg-body b { font-weight: 600; }
@@ -444,10 +465,19 @@
   #meter[hidden] { display: none; }
   #meter[aria-expanded='true'] { background: var(--selector); color: var(--muted); }
   #stats {
-    flex: 1 1 auto; display: flex; gap: 10px; justify-content: flex-end;
+    flex: 1 1 auto; display: flex; gap: 12px; justify-content: space-between;
     font-size: 11.5px; color: var(--tertiary); font-variant-numeric: tabular-nums;
   }
+  #stats .st-group { display: inline-flex; align-items: center; gap: 5px; }
+  #stats .st-ico { display: inline-flex; width: 13px; height: 13px; color: var(--caption); }
+  #stats .st-ico svg { width: 13px; height: 13px; }
   #stats[hidden] { display: none; }
+
+  /* 窗口很矮时（用户拖过）按优先级丢内容，别让输入栏被挤出窗口外 */
+  body.short #dock { display: none !important; }
+  body.short #compose { gap: 8px; padding-top: 6px; }
+  body.short .msg-body { -webkit-line-clamp: 4; }
+  body.tiny #goalbar { display: none !important; }
 
   /* ≡ 菜单的三个区块开关（宿主也会用 applyConfig 下发同样的类名） */
   body.hide-tabs #tabs { display: none !important; }
@@ -482,13 +512,20 @@
     .uhead b { font-size: 15px; }
     .urow { font-size: 10.5px; }
     #compose { padding: 10px 12px 8px; }
-    #compose .row { gap: 8px; }
+    /* 列表滚到边界时用一层渐变盖住被切开的最后半行（mask 在部分 WebView 不生效） */
+  #compose::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -20px; height: 20px;
+    background: linear-gradient(to bottom, rgba(var(--bg-rgb), 0), rgba(var(--bg-rgb), 1));
+    pointer-events: none;
+  }
+  #compose .row { gap: 8px; }
     .round { width: 28px; height: 28px; }
   }
 
   /* 输入栏：照 dsh InputBar（ui-conversation/src/client/skeleton/InputBar.module.css）
      card: padding-top 8 + gap 12；row: gap 12(窄卡 8)、padding 2px 8px 6px */
   #compose {
+    position: relative;
     flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px;
     margin-top: 8px; padding: 8px 0 0;
     background: var(--field);
@@ -496,6 +533,12 @@
     border-radius: 8px;
     font-size: var(--fs-content);
     line-height: var(--lh-content);
+  }
+  /* 列表滚到边界时用一层渐变盖住被切开的最后半行（mask 在部分 WebView 不生效） */
+  #compose::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -20px; height: 20px;
+    background: linear-gradient(to bottom, rgba(var(--bg-rgb), 0), rgba(var(--bg-rgb), 1));
+    pointer-events: none;
   }
   #compose .row {
     display: flex; align-items: center; gap: 8px;
@@ -583,6 +626,12 @@
   }
   #stats[hidden] { display: none; }
 
+  /* 窗口很矮时（用户拖过）按优先级丢内容，别让输入栏被挤出窗口外 */
+  body.short #dock { display: none !important; }
+  body.short #compose { gap: 8px; padding-top: 6px; }
+  body.short .msg-body { -webkit-line-clamp: 4; }
+  body.tiny #goalbar { display: none !important; }
+
   /* ≡ 菜单的三个区块开关（宿主也会用 applyConfig 下发同样的类名） */
   body.hide-tabs #tabs { display: none !important; }
   body.hide-usage #usage-card, body.hide-usage #stats { display: none !important; }
@@ -607,10 +656,21 @@
 <body>
 <div id="card">
   <div id="head">
-    <span id="dot"></span>
     <span id="title">RCHA</span>
-    <span id="live" hidden>进行中</span>
-    <span id="count" hidden></span>
+    <span class="headspacer"></span>
+    <button id="perm-head" title="权限" aria-haspopup="listbox" aria-expanded="false">
+      <span class="pglyph" id="perm-head-glyph"></span>
+      <span class="name" id="perm-head-name">标准模式</span>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>
+    </button>
+    <button id="meter" hidden aria-haspopup="dialog" aria-label="上下文已用 0%">
+      <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
+        <circle id="meter-track" cx="7" cy="7" r="5.5" fill="none" stroke="var(--line-strong)" stroke-width="2"/>
+        <circle id="meter-fill" cx="7" cy="7" r="5.5" fill="none" stroke="var(--tertiary)" stroke-width="2" stroke-linecap="round" transform="rotate(-90 7 7)"/>
+      </svg>
+      <span id="meter-pct">0%</span>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>
+    </button>
   </div>
   <div id="tabs" hidden></div>
   <div id="list"><div class="empty">等待消息…</div></div>
@@ -626,8 +686,8 @@
   </div>
 
   <div id="menu" hidden>
-    <div class="row"><span>透明度</span><b id="m-alpha-v" style="min-width:32px;text-align:right;color:var(--fg)">92%</b></div>
-    <div class="row"><input id="m-alpha" type="range" min="55" max="100" step="1" value="92"></div>
+    <div class="row"><span>透明度</span><b id="m-alpha-v" style="min-width:32px;text-align:right;color:var(--fg)">100%</b></div>
+    <div class="row"><input id="m-alpha" type="range" min="90" max="100" step="1" value="100"></div>
     <div class="sep"></div>
     <div class="row"><span>会话标签</span><div class="sw on" id="sw-tabs"><i></i></div></div>
     <div class="row"><span>上下文用量</span><div class="sw on" id="sw-usage"><i></i></div></div>
@@ -682,16 +742,9 @@
     </div>
   </div>
   <div id="dock">
-    <button id="meter" hidden aria-haspopup="dialog" aria-label="上下文已用 0%">
-      <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
-        <circle id="meter-track" cx="7" cy="7" r="5.5" fill="none" stroke="var(--line-strong)" stroke-width="2"/>
-        <circle id="meter-fill" cx="7" cy="7" r="5.5" fill="none" stroke="var(--tertiary)" stroke-width="2" stroke-linecap="round" transform="rotate(-90 7 7)"/>
-      </svg>
-      <span id="meter-pct">0%</span>
-    </button>
     <div id="stats" hidden>
-      <span id="st-left"></span>
-      <span id="st-right"></span>
+      <span class="st-group"><span class="st-ico" id="st-ico-left"></span><span id="st-left"></span></span>
+      <span class="st-group"><span class="st-ico" id="st-ico-right"></span><span id="st-right"></span></span>
     </div>
   </div>
   <div id="actions" hidden>
@@ -765,6 +818,15 @@
     const label = stop ? '停止生成' : '发送消息';
     btn.title = label;
     btn.setAttribute('aria-label', label);
+  }
+
+  /** 按窗口实际高度决定保留哪些块（矮窗先丢统计行，再丢目标条）。 */
+  function applyHeightTier() {
+    const card = el('card');
+    if (!card) return;
+    const h = card.clientHeight;
+    document.body.classList.toggle('short', h > 0 && h < 300);
+    document.body.classList.toggle('tiny', h > 0 && h < 220);
   }
 
   let sendingTimer = 0;
@@ -896,7 +958,7 @@
   function startWorkingClock(label, since) {
     if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
     if (!since) return;
-    const paint = () => { label.textContent = '深度求索中，用时 ' + fmtDuration(Date.now() - since); };
+    const paint = () => { label.textContent = '深度求索中，用时 ' + fmtDuration(Date.now() - since) + ' ···'; };
     paint();
     workingTimer = setInterval(paint, 1000);
   }
@@ -1054,7 +1116,7 @@
       const v = next || {};
       document.body.classList.toggle('dark', v.theme === 'dark');
       if (typeof v.alpha === 'number') {
-        const pct = Math.max(55, Math.min(100, Math.round(v.alpha)));
+        const pct = Math.max(90, Math.min(100, Math.round(v.alpha)));
         document.documentElement.style.setProperty('--alpha', String(pct / 100));
         const slider = el('m-alpha');
         if (slider) slider.value = String(pct);
@@ -1075,12 +1137,11 @@
         syncBusy(false);
         if (el('goalbar')) el('goalbar').hidden = true;
         el('compose').classList.toggle('compact', el('compose').clientWidth > 0 && el('compose').clientWidth < 460);
+      applyHeightTier();
         if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
         refreshSendMode();
-        el('live').hidden = true;
         el('tabs').hidden = true;
         el('title').textContent = 'RCHA';
-        el('count').hidden = true;
         return;
       }
       state = {
@@ -1103,8 +1164,8 @@
       if (!modelMenu.hidden && state.models.length) { buildModelMenu(); placeModelMenu(); }
       el('title').textContent = task.title || 'RCHA';
       el('compose').classList.toggle('compact', el('compose').clientWidth > 0 && el('compose').clientWidth < 460);
+      applyHeightTier();
       refreshSendMode();
-      el('live').hidden = !!task.done;
       renderUsage(task.usage);
       state.modelName = task.model ? String(task.model) : (state.modelName || '');
       if (Array.isArray(task.commands)) state.commands = task.commands;
@@ -1121,6 +1182,8 @@
       const stats = el('stats');
       const hideStats = document.body.classList.contains('hide-usage');
       if (st && !hideStats && (st.turns || st.steps || st.total)) {
+        el('st-ico-left').innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6"/><path d="M8 2v3"/></svg>';
+        el('st-ico-right').innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><ellipse cx="8" cy="4.5" rx="5.5" ry="2"/><path d="M2.5 4.5v7c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-7"/></svg>';
         el('st-left').textContent = (st.turns || 0) + ' 轮 ' + (st.steps || 0) + ' 步';
         const parts = [];
         if (st.total) parts.push(shortK(st.total) + ' tok');
@@ -1131,8 +1194,6 @@
         stats.hidden = true;
       }
       const count = state.tasks.length;
-      el('count').textContent = count > 1 ? count + ' 个任务' : '';
-      el('count').hidden = count <= 1;
 
       // 消息列表：按 id 集合重建，展开状态保留
       const msgs = Array.isArray(task.messages) ? task.messages : [];
@@ -1164,7 +1225,7 @@
           dots.className = 'dots';
           for (let i = 0; i < 3; i++) dots.appendChild(document.createElement('i'));
           const label = document.createElement('span');
-          label.textContent = '深度求索中…';
+          label.textContent = '深度求索中，用时 0 秒';
           working.append(dots, label);
           list.appendChild(working);
           startWorkingClock(label, task.since);
@@ -1321,6 +1382,13 @@
     head.className = 'msg-head';
     const badge = document.createElement('span');
     badge.className = 'badge';
+    const icon = document.createElement('span');
+    icon.className = 'step-ico';
+    const isStep = kind === 'tool' || kind === 'think';
+    if (isStep) {
+      icon.innerHTML = stepIcon(m);
+      item.classList.add('step');
+    }
     const title = document.createElement('span');
     title.className = 'msg-title';
     if (kind === 'tool' || kind === 'think') {
@@ -1335,7 +1403,7 @@
     const time = document.createElement('span');
     time.className = 'msg-time';
     time.textContent = formatTime(m.at);
-    head.append(badge, title, time, chev);
+    head.append(isStep ? icon : badge, title, time, chev);
 
     const body = document.createElement('div');
     body.className = 'msg-body';
@@ -1371,7 +1439,6 @@
     list.dataset.sig = 'thread:' + id;
     const row = state.threads.find(t => t.id === id);
     el('title').textContent = (row && row.title) || '会话 ' + String(id).slice(-4);
-    el('live').hidden = true;
     el('tabs').hidden = state.threads.length <= 1;
     list.innerHTML = '<div class="empty">正在读取这个对话的历史…</div>';
     if (!historyAsked.has(id)) {
@@ -1469,7 +1536,7 @@
     });
   });
   el('m-alpha').addEventListener('input', e => {
-    const value = Math.max(55, Math.min(100, Number(e.target.value) || 92));
+    const value = Math.max(90, Math.min(100, Number(e.target.value) || 100));
     el('m-alpha-v').textContent = value + '%';
     // 窗口不再整体半透明，透明全靠这张卡片自己的底色
     document.documentElement.style.setProperty('--alpha', String(value / 100));
@@ -1489,6 +1556,21 @@
     el('file-chip').hidden = true;
     if (!pendingImage) el('attach-bar').hidden = true;
   });
+  const STEP_ICONS = {
+    think: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.2854 5.71481C12.9673 8.39663 14.1182 11.5938 12.8562 12.8559C11.5942 14.1179 8.39706 12.9669 5.71518 10.2851C3.03333 7.60323 1.88236 4.40608 3.14441 3.14403C4.40644 1.882 7.6036 3.03297 10.2854 5.71481Z"/><path d="M10.2854 10.2851C7.6036 12.9669 4.40644 14.1179 3.14441 12.8559C1.88236 11.5938 3.03333 8.39663 5.71518 5.71481C8.39706 3.03297 11.5942 1.882 12.8562 3.14403C14.1182 4.40608 12.9673 7.60323 10.2854 10.2851Z"/></svg>',
+    command: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5L6.5 8L2.5 12.5"/><path d="M8.5 12.5H13.5"/></svg>',
+    file: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9.5 1.5H4.5C3.7 1.5 3 2.2 3 3V13C3 13.8 3.7 14.5 4.5 14.5H11.5C12.3 14.5 13 13.8 13 13V5L9.5 1.5Z"/><path d="M9.5 1.5V5H13"/></svg>',
+    search: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>',
+  };
+  /** 工具行按名称挑一个 dsh 轨迹里的图标。 */
+  function stepIcon(m) {
+    const name = String(m.title || '');
+    if (m.kind === 'think') return STEP_ICONS.think;
+    if (/搜索|grep|search/i.test(name)) return STEP_ICONS.search;
+    if (/执行|命令|command|shell/i.test(name)) return STEP_ICONS.command;
+    return STEP_ICONS.file;
+  }
+
   const AT_FILE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9.5 1.5H4.5C3.7 1.5 3 2.2 3 3V13C3 13.8 3.7 14.5 4.5 14.5H11.5C12.3 14.5 13 13.8 13 13V5L9.5 1.5Z"/><path d="M9.5 1.5V5H13"/></svg>';
   const AT_DIR = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 4.5C1.5 3.7 2.2 3 3 3H6L7.5 5H13C13.8 5 14.5 5.7 14.5 6.5V12C14.5 12.8 13.8 13.5 13 13.5H3C2.2 13.5 1.5 12.8 1.5 12V4.5Z"/></svg>';
 
@@ -1672,6 +1754,14 @@
     glyph.innerHTML = PERM_GLYPHS[value] || PERM_GLYPHS['read-only'];
     name.textContent = PERM_LABELS[value] || value;
     chip.title = '权限：' + (PERM_LABELS[value] || value);
+    // 顶栏那枚（dsh 的「标准模式」位置）
+    const headChip = el('perm-head');
+    if (headChip) {
+      headChip.hidden = false;
+      el('perm-head-glyph').innerHTML = PERM_GLYPHS[value] || PERM_GLYPHS['read-only'];
+      el('perm-head-name').textContent = PERM_LABELS[value] || value;
+      headChip.title = '权限：' + (PERM_LABELS[value] || value);
+    }
   }
 
   let riskyPending = 0;
@@ -1787,6 +1877,21 @@
     showNotice('已请求清除目标', 3000, true);
   });
 
+  onTap(el('perm-head'), e => {
+    e.stopPropagation();
+    const menu = el('perm-menu');
+    if (!menu.hidden) {
+      menu.hidden = true;
+      el('perm-head').setAttribute('aria-expanded', 'false');
+      return;
+    }
+    if (!buildPermMenu()) { el('perm-head').hidden = true; return; }
+    menu.style.bottom = '';
+    menu.style.top = (el('head').offsetHeight + 2) + 'px';
+    menu.hidden = false;
+    el('perm-head').setAttribute('aria-expanded', 'true');
+  });
+
   onTap(el('perm'), e => {
     e.stopPropagation();
     const menu = el('perm-menu');
@@ -1864,7 +1969,7 @@
     const cmdMenu = el('cmd-menu');
     if (cmdMenu && !cmdMenu.hidden && !cmdMenu.contains(e.target)) cmdMenu.hidden = true;
     const permMenu = el('perm-menu');
-    if (!permMenu.hidden && !permMenu.contains(e.target) && !e.target.closest('#perm')) {
+    if (!permMenu.hidden && !permMenu.contains(e.target) && !e.target.closest('#perm') && !e.target.closest('#perm-head')) {
       permMenu.hidden = true;
       el('perm').setAttribute('aria-expanded', 'false');
     }
@@ -1873,6 +1978,11 @@
   onTap(el('allow'), () => { post('activity', {}); post('confirm', { allow: true }); });
   onTap(el('deny'), () => { post('activity', {}); post('confirm', { allow: false }); });
 
+  try {
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => applyHeightTier()).observe(el('card'));
+    }
+  } catch (_) {}
   post('ready', {});
   // 宿主在页面加载前推的那一帧会丢：主动请它再读一次状态文件。
   post('refresh', {});
