@@ -42,6 +42,7 @@ public final class FloatWebWindow {
   private final WindowManager wm;
   private final WindowManager.LayoutParams params;
 
+  private android.widget.LinearLayout menu;
   private boolean moving;
   private boolean dragMoved;
   private float downX;
@@ -68,6 +69,8 @@ public final class FloatWebWindow {
         new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     root.addView(bar(), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(HEAD_DP)));
+    root.addView(menuPanel(), menuLayoutParams());
+    root.addView(resizeHandle(), resizeLayoutParams());
 
     WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
     lp.type =
@@ -188,6 +191,20 @@ public final class FloatWebWindow {
         new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+    android.widget.TextView settings = new android.widget.TextView(app);
+    settings.setText("≡");
+    settings.setTextSize(14);
+    settings.setTextColor(0xFFFFFFFF);
+    settings.setGravity(Gravity.CENTER);
+    FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(28), dp(28));
+    sp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+    sp.rightMargin = dp(30);
+    bar.addView(settings, sp);
+    settings.setOnClickListener(
+        v -> {
+          if (menu != null) menu.setVisibility(menu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        });
+
     android.widget.TextView close = new android.widget.TextView(app);
     close.setText("×");
     close.setTextSize(14);
@@ -237,6 +254,104 @@ public final class FloatWebWindow {
           }
         });
     return bar;
+  }
+
+  /** 右上角 ≡ 展开的设置面板：透明度滑杆。 */
+  private View menuPanel() {
+    menu = new android.widget.LinearLayout(app);
+    menu.setOrientation(android.widget.LinearLayout.VERTICAL);
+    menu.setBackgroundColor(0xF2161A22);
+    menu.setPadding(dp(12), dp(10), dp(12), dp(10));
+    menu.setVisibility(View.GONE);
+
+    android.widget.TextView label = new android.widget.TextView(app);
+    label.setText("透明度 " + Math.round(rootAlpha() * 100) + "%");
+    label.setTextSize(11);
+    label.setTextColor(0xFFE6EAF2);
+    menu.addView(label);
+
+    android.widget.SeekBar bar = new android.widget.SeekBar(app);
+    bar.setMax(80);
+    bar.setProgress(Math.round(rootAlpha() * 100) - 20);
+    bar.setOnSeekBarChangeListener(
+        new android.widget.SeekBar.OnSeekBarChangeListener() {
+          @Override
+          public void onProgressChanged(android.widget.SeekBar seekBar, int value, boolean fromUser) {
+            int alpha = 20 + value;
+            label.setText("透明度 " + alpha + "%");
+            root.setAlpha(alpha / 100f);
+          }
+
+          @Override
+          public void onStartTrackingTouch(android.widget.SeekBar seekBar) {}
+
+          @Override
+          public void onStopTrackingTouch(android.widget.SeekBar seekBar) {}
+        });
+    menu.addView(bar);
+
+    android.widget.TextView hint = new android.widget.TextView(app);
+    hint.setText("拖右下角改宽高 · 顶部拖动移动");
+    hint.setTextSize(10);
+    hint.setTextColor(0x80FFFFFF);
+    hint.setPadding(0, dp(6), 0, 0);
+    menu.addView(hint);
+    return menu;
+  }
+
+  private float rootAlpha() {
+    float a = root.getAlpha();
+    return a <= 0.01f ? 1f : a;
+  }
+
+  private FrameLayout.LayoutParams menuLayoutParams() {
+    FrameLayout.LayoutParams lp =
+        new FrameLayout.LayoutParams(dp(184), ViewGroup.LayoutParams.WRAP_CONTENT);
+    lp.gravity = Gravity.TOP | Gravity.END;
+    lp.topMargin = dp(HEAD_DP + 4);
+    lp.rightMargin = dp(6);
+    return lp;
+  }
+
+  /** 右下角缩放抓手。 */
+  private View resizeHandle() {
+    View handle = new View(app);
+    handle.setBackgroundColor(0x33000000);
+    handle.setOnTouchListener(
+        (v, event) -> {
+          switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+              downX = event.getRawX();
+              downY = event.getRawY();
+              baseW = params.width;
+              baseH = params.height;
+              return true;
+            case MotionEvent.ACTION_MOVE: {
+              int screenW = app.getResources().getDisplayMetrics().widthPixels;
+              int screenH = app.getResources().getDisplayMetrics().heightPixels;
+              params.width =
+                  clamp(baseW + Math.round(event.getRawX() - downX), dp(MIN_W_DP),
+                      Math.max(dp(MIN_W_DP), screenW - params.x));
+              params.height =
+                  clamp(baseH + Math.round(event.getRawY() - downY), dp(MIN_H_DP),
+                      Math.max(dp(MIN_H_DP), screenH - params.y));
+              try {
+                if (wm != null && root.isAttachedToWindow()) wm.updateViewLayout(root, params);
+              } catch (Throwable ignored) {
+              }
+              return true;
+            }
+            default:
+              return true;
+          }
+        });
+    return handle;
+  }
+
+  private FrameLayout.LayoutParams resizeLayoutParams() {
+    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(20), dp(20));
+    lp.gravity = Gravity.BOTTOM | Gravity.END;
+    return lp;
   }
 
   private void destroy() {
