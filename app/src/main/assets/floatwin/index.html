@@ -281,7 +281,10 @@
 
   function shortK(n) {
     if (!Number.isFinite(n)) return '?';
-    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1000000) {
+      const m = n / 1000000;
+      return (m >= 10 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, '')) + 'M';
+    }
     if (n >= 1000) return Math.round(n / 1000) + 'K';
     return String(n);
   }
@@ -294,10 +297,11 @@
     const pct = Math.min(100, Math.round((usage.used / usage.window) * 100));
     el('u-pct').textContent = pct + '%';
     el('u-total').textContent = '~' + shortK(usage.used) + ' / ' + shortK(usage.window);
-    const total = Math.max(1, (usage.system || 0) + (usage.tools || 0) + (usage.messages || 0));
-    el('ub-sys').style.width = ((usage.system || 0) / total * 100) + '%';
-    el('ub-tools').style.width = ((usage.tools || 0) / total * 100) + '%';
-    el('ub-msg').style.width = ((usage.messages || 0) / total * 100) + '%';
+    // 和 dsh 一致：三段按「占整个上下文窗口」的比例画，剩余部分留空底色
+    const win = Math.max(1, usage.window);
+    el('ub-sys').style.width = ((usage.system || 0) / win * 100) + '%';
+    el('ub-tools').style.width = ((usage.tools || 0) / win * 100) + '%';
+    el('ub-msg').style.width = ((usage.messages || 0) / win * 100) + '%';
     el('u-sys').textContent = '~' + shortK(usage.system);
     el('u-tools').textContent = '~' + shortK(usage.tools);
     el('u-msg').textContent = '~' + shortK(usage.messages);
