@@ -402,11 +402,20 @@ public final class FloatWindow {
     FrameLayout.LayoutParams stripParams =
         new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, HEAD_DP));
     stripParams.gravity = Gravity.TOP;
-    stripParams.rightMargin = dp(app, 72);
+    stripParams.rightMargin = dp(app, 104);
     frame.addView(strip, stripParams);
     attachMove(strip, frame);
 
-    // 悬浮窗自己的按钮：右下角缩放由触摸层负责，这里只放「关闭 / 回到应用」。
+    // 悬浮窗自己的按钮：菜单 / 关闭 / 回到应用。
+    FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
+    menuParams.gravity = Gravity.TOP | Gravity.END;
+    menuParams.topMargin = dp(app, 4);
+    menuParams.rightMargin = dp(app, 66);
+    frame.addView(overlayButton(app, "≡"), menuParams);
+    frame.getChildAt(frame.getChildCount() - 1)
+        .setOnClickListener(
+            v -> evaluate("window.dshFloat&&window.dshFloat.toggleMenu()"));
+
     FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
     closeParams.gravity = Gravity.TOP | Gravity.END;
     closeParams.topMargin = dp(app, 4);
@@ -657,6 +666,15 @@ public final class FloatWindow {
             updateLayout(container);
           }
           return;
+        case "alpha": {
+          Context ctx = web == null ? null : web.getContext();
+          int alpha = Math.max(20, Math.min(100, p.optInt("value", 60)));
+          if (ctx != null) {
+            prefs(ctx).edit().putInt("floatwin_alpha", alpha).apply();
+          }
+          if (container != null) container.setAlpha(alpha / 100f);
+          return;
+        }
         case "voice": {
           startVoice();
           return;

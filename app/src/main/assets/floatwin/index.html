@@ -157,6 +157,27 @@
   }
 
   /* 紧凑输入栏：+ 图片 / 输入 / 语音 / 发送 */
+  /* 右上角 ≡ 菜单：透明度 / 区块显隐 / 缩放提示 */
+  #menu {
+    position: absolute; right: 8px; top: 34px; z-index: 6; width: 216px;
+    background: rgba(22,26,34,.98); border: 1px solid rgba(255,255,255,.10);
+    border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    font-size: 12px; color: var(--muted);
+  }
+  #menu[hidden] { display: none; }
+  #menu .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  #menu .row span { flex: 1 1 auto; }
+  #menu input[type=range] { flex: 1 1 auto; accent-color: #7aa2ff; }
+  #menu .sw { width: 34px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.16); position: relative; flex: 0 0 auto; }
+  #menu .sw.on { background: rgba(122,162,255,.9); }
+  #menu .sw i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 7px; background: #fff; transition: left .12s; }
+  #menu .sw.on i { left: 18px; }
+  #menu .hint { font-size: 11px; color: rgba(255,255,255,.45); padding-top: 6px; line-height: 1.5; }
+  #menu .sep { height: 1px; background: rgba(255,255,255,.08); margin: 6px 0; }
+  body.hide-tabs #tabs { display: none !important; }
+  body.hide-usage #usage { display: none !important; }
+  body.hide-compose #compose, body.hide-compose #attach-bar { display: none !important; }
+
   #compose {
     flex: 0 0 auto;
     display: flex; align-items: center; gap: 6px;
@@ -215,6 +236,15 @@
   <div id="usage" hidden>
     <span id="usage-text">上下文 0%</span>
     <span id="usage-meter"><span id="usage-fill"></span></span>
+  </div>
+  <div id="menu" hidden>
+    <div class="row"><span>透明度</span><b id="m-alpha-v" style="min-width:32px;text-align:right;color:var(--fg)">60%</b></div>
+    <div class="row"><input id="m-alpha" type="range" min="20" max="100" step="5" value="60"></div>
+    <div class="sep"></div>
+    <div class="row"><span>会话标签</span><div class="sw on" id="sw-tabs"><i></i></div></div>
+    <div class="row"><span>上下文用量</span><div class="sw on" id="sw-usage"><i></i></div></div>
+    <div class="row"><span>输入栏</span><div class="sw on" id="sw-compose"><i></i></div></div>
+    <div class="hint">拖右下角或右侧/下边缘可改宽高；≡ 再点一次收起。</div>
   </div>
   <div id="attach-bar" hidden>
     <div class="thumb"><img id="thumb-img" alt=""><button id="thumb-x">×</button></div>
@@ -289,7 +319,28 @@
     line.hidden = false;
   }
 
+  const blocks = { tabs: 'hide-tabs', usage: 'hide-usage', compose: 'hide-compose' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('floatwin_blocks') || '{}');
+    Object.keys(blocks).forEach(k => {
+      if (saved[k] === false) document.body.classList.add(blocks[k]);
+    });
+  } catch (_) {}
+
+  function syncSwitches() {
+    Object.keys(blocks).forEach(k => {
+      const on = !document.body.classList.contains(blocks[k]);
+      const sw = el('sw-' + k);
+      if (sw) sw.classList.toggle('on', on);
+    });
+  }
+
   window.dshFloat = {
+    toggleMenu: function () {
+      const menu = el('menu');
+      menu.hidden = !menu.hidden;
+      if (!menu.hidden) syncSwitches();
+    },
     toggle: function () {
       // 轻点拖动条：展开/收起最新一条消息
       const msgs = document.querySelectorAll('#list .msg');
@@ -493,6 +544,26 @@
     post('voice', {});
   });
   el('pick').addEventListener('click', e => { e.stopPropagation(); post('pickImage', {}); });
+  Object.keys(blocks).forEach(k => {
+    el('sw-' + k).addEventListener('click', e => {
+      e.stopPropagation();
+      const cls = blocks[k];
+      const show = document.body.classList.contains(cls);
+      document.body.classList.toggle(cls, !show);
+      try {
+        const saved = JSON.parse(localStorage.getItem('floatwin_blocks') || '{}');
+        saved[k] = show;
+        localStorage.setItem('floatwin_blocks', JSON.stringify(saved));
+      } catch (_) {}
+      syncSwitches();
+      post('resize', {});
+    });
+  });
+  el('m-alpha').addEventListener('input', e => {
+    const value = Number(e.target.value) || 60;
+    el('m-alpha-v').textContent = value + '%';
+    post('alpha', { value });
+  });
   el('usage').addEventListener('click', e => {
     e.stopPropagation();
     const card = el('usage-card');
