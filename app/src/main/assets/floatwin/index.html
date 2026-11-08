@@ -785,6 +785,61 @@
 
   body.fw #fwbody { display: flex; flex-direction: column; min-height: 0; }
   body.t2 #fwbody { flex: 1 1 auto; }
+  /* 目标 / 任务清单：各占一行，点开看全文与操作；mini 与 std 都有 */
+  #goal-row, #todo-row { display: none; }
+  body.fw #goal-row.has, body.fw #todo-row.has {
+    display: flex; align-items: flex-start; gap: 6px; padding: 0 4px 4px;
+    font-size: 12px; line-height: 18px; color: var(--fw-sub);
+  }
+  body.fw #goal-row.has { padding-top: 2px; }
+  #goal-row .lab, #todo-row .lab {
+    flex: none; display: inline-flex; align-items: center; gap: 4px; height: 18px;
+    white-space: nowrap;
+  }
+  #goal-row .lab svg, #todo-row .lab svg { width: 12px; height: 12px; display: block; }
+  #goal-row .lab .n, #todo-row .lab .n { font-variant-numeric: tabular-nums; }
+  #goal-row.blocked .lab { color: var(--danger); }
+  #goal-row .clip, #todo-row .clip {
+    flex: 1 1 auto; min-width: 0; display: flex; overflow: hidden; white-space: nowrap;
+  }
+  #goal-row .clip.over, #todo-row .clip.over {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  }
+  #goal-row.open, #todo-row.open { flex-wrap: wrap; }
+  #goal-row.open .clip, #todo-row.open .clip { flex: 1 1 0; }
+  #goal-row.open .clip, #todo-row.open .clip {
+    display: block; white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 168px; overflow-y: auto;
+    -webkit-mask-image: none; mask-image: none;
+  }
+  #goal-row .clip::-webkit-scrollbar, #todo-row .clip::-webkit-scrollbar { width: 0; }
+  #goal-row .gacts { display: none; flex: 1 1 100%; gap: 6px; padding-top: 4px; }
+  #goal-row.open .gacts { display: flex; }
+  #goal-row .gbtn {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 24px; padding: 0 8px; border: 0; border-radius: 4px;
+    background: var(--fw-chip); color: var(--fw-sub);
+    font-size: 11px; font-family: inherit;
+  }
+  #goal-row .gbtn svg { width: 12px; height: 12px; display: block; }
+  #goal-row .gbtn:active { color: var(--fw-text); }
+  #goal-row .gbtn.danger:active { color: var(--danger); }
+  /* 任务清单展开后每项一行 */
+  #todo-row .item { display: flex; align-items: flex-start; gap: 6px; }
+  #todo-row .item .ic { flex: none; width: 12px; height: 18px; display: grid; place-items: center; }
+  #todo-row .item .ic svg { width: 11px; height: 11px; display: block; }
+  #todo-row .item .tx { min-width: 0; flex: 1 1 auto; }
+  #todo-row .item.doing { color: var(--fw-text); }
+  #todo-row .item.doing .ic { color: var(--accent); }
+  #todo-row .item.done { color: var(--fw-sub); }
+  #todo-row .item.done .tx { text-decoration: line-through; opacity: .72; }
+  /* 标准档：这两行是固定表头，最后一行底下加一道细线，和可滚动的对话分开 */
+  body.t2 #goal-row.has.plan-last, body.t2 #todo-row.has.plan-last {
+    padding-bottom: 6px; margin-bottom: 2px;
+    border-bottom: 0.5px solid var(--fw-line);
+  }
+
   /* 迷你：本轮最新的思考单独一行（显示最新写到的部分），点开看全文；和回答各自展开 */
   #think-row { display: none; }
   body.t1 #think-row.has {
@@ -927,6 +982,8 @@
 <div id="card">
   <div id="fwtop"><div id="fwtabs"></div><button class="fwtab new" id="fwnew" title="新会话" aria-label="新会话"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2.5V13.5"/><path d="M2.5 8H13.5"/></svg></button><div id="fwstat"></div></div>
   <div id="fwbody">
+    <div id="goal-row"><span class="lab"></span><span class="clip"><span class="txt"></span></span><span class="gacts"></span></div>
+    <div id="todo-row"><span class="lab"></span><span class="clip"><span class="txt"></span></span></div>
     <div id="think-row"><span class="lab"></span><span class="clip"><span class="txt"></span></span></div>
     <div id="tail"><div id="tail-text"></div></div>
     <div id="tail-step"></div>
@@ -1637,6 +1694,74 @@
     }
   }
 
+  // ── 目标 / 任务清单（mini 与 std 共用两行）──
+  const TODO_ICONS = {
+    pending: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/></svg>',
+    in_progress: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5A5.5 5.5 0 0 1 8 13.5Z" fill="currentColor" stroke="none"/></svg>',
+    completed: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5L6.4 12L13 4.5"/></svg>',
+  };
+  const GOAL_LABELS = { active: '目标', paused: '已暂停', blocked: '受阻' };
+  let goalRowSig = '';
+  let todoRowSig = '';
+
+  /** 目标一行：阶段 + 目标正文；点开看全文和暂停/恢复/清除。 */
+  function renderGoalRow(task) {
+    const row = el('goal-row');
+    const goal = task && task.goal;
+    const open = row.classList.contains('open');
+    const sig = (goal
+      ? [goal.id, goal.phase, goal.activation, goal.revision, String(goal.objective || '').length].join('|')
+      : '') + '#' + (open ? 1 : 0);
+    if (sig === goalRowSig) return;
+    goalRowSig = sig;
+    row.classList.toggle('has', !!goal);
+    if (!goal) { row.classList.remove('open'); return; }
+    const running = goal.phase === 'active' && goal.activation !== 'disarmed';
+    const label = goal.activation === 'disarmed' ? '待继续' : (GOAL_LABELS[goal.phase] || '目标');
+    row.classList.toggle('blocked', goal.phase === 'blocked');
+    row.querySelector('.lab').innerHTML = GOAL_GLYPHS.goal + '<span class="n">' + escapeHtml(label) + '</span>';
+    row.querySelector('.txt').textContent = goal.objective || '';
+    const acts = row.querySelector('.gacts');
+    acts.innerHTML = '<button class="gbtn" type="button" data-a="' + (running ? 'pause' : 'resume') + '">'
+      + (running ? GOAL_GLYPHS.pause : GOAL_GLYPHS.play) + '<span>' + (running ? '暂停' : '继续') + '</span>'
+      + '</button><button class="gbtn danger" type="button" data-a="clear">'
+      + GOAL_GLYPHS.trash + '<span>清除</span></button>';
+    const clip = row.querySelector('.clip');
+    const txt = clip.querySelector('.txt');
+    clip.classList.remove('over');
+    if (!open) clip.classList.toggle('over', txt.scrollWidth > clip.clientWidth + 1);
+  }
+
+  /** 任务清单一行：完成数 + 正在做的那条；点开看完整清单。 */
+  function renderTodoRow(task) {
+    const row = el('todo-row');
+    const list = task && Array.isArray(task.todos) && task.todos.length ? task.todos : null;
+    const open = row.classList.contains('open');
+    const sig = (list ? list.map(t => t.status + String(t.content || '').length).join(',') : '') + '#' + (open ? 1 : 0);
+    if (sig === todoRowSig) return;
+    todoRowSig = sig;
+    row.classList.toggle('has', !!list);
+    if (!list) { row.classList.remove('open'); return; }
+    const done = list.filter(t => t.status === 'completed').length;
+    const doing = list.find(t => t.status === 'in_progress');
+    row.querySelector('.lab').innerHTML = TODO_ICONS.completed
+      + '<span class="n">' + done + '/' + list.length + '</span>';
+    const clip = row.querySelector('.clip');
+    const txt = clip.querySelector('.txt');
+    if (open) {
+      txt.innerHTML = list.map(t => {
+        const st = t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'doing' : '';
+        return '<div class="item ' + st + '"><span class="ic">'
+          + (TODO_ICONS[t.status] || TODO_ICONS.pending) + '</span>'
+          + '<span class="tx">' + escapeHtml(t.content || '') + '</span></div>';
+      }).join('');
+    } else {
+      txt.textContent = doing ? doing.content : (done === list.length ? '任务已完成' : (list[0] ? list[0].content : ''));
+    }
+    clip.classList.remove('over');
+    if (!open) clip.classList.toggle('over', txt.scrollWidth > clip.clientWidth + 1);
+  }
+
   let thinkSig = '';
   /** 迷你：本轮最新一段思考。 */
   function renderThink(task) {
@@ -1806,6 +1931,14 @@
     syncBusy(live);
     refreshSendMode();
     renderFwTabs();
+    renderGoalRow(task);
+    renderTodoRow(task);
+    {
+      const grow = el('goal-row').classList.contains('has');
+      const trow = el('todo-row').classList.contains('has');
+      el('goal-row').classList.toggle('plan-last', grow && !trow);
+      el('todo-row').classList.toggle('plan-last', trow);
+    }
     if (tier === 1) { renderThink(task); renderTail(task); } else renderList(task);
     if (fwTimer) { clearInterval(fwTimer); fwTimer = 0; }
     if (live || newSince) fwTimer = setInterval(() => paintRunning(currentTask()), 1000);
@@ -2751,6 +2884,38 @@
   onTap(el('folder'), e => {
     e.stopPropagation();
     post('open', {});
+  });
+
+  onTap(el('goal-row'), e => {
+    e.stopPropagation();
+    const btn = e.target && e.target.closest ? e.target.closest('.gbtn') : null;
+    if (btn) {
+      const task = currentTask();
+      const goal = task && task.goal;
+      if (!goal) return;
+      const action = btn.dataset.a;
+      post('goal', { session: currentId() || state.active || lastSession || '', value: action });
+      showNotice(action === 'pause' ? '已请求暂停目标' : action === 'resume' ? '已请求恢复目标' : '已请求清除目标', 3000, true);
+      return;
+    }
+    const row = el('goal-row');
+    if (!row.classList.contains('has')) return;
+    const clip = row.querySelector('.clip');
+    const stick = clip.scrollTop + clip.clientHeight >= clip.scrollHeight - 8;
+    row.classList.toggle('open');
+    goalRowSig = '';
+    renderGoalRow(currentTask());
+    if (row.classList.contains('open') && stick) clip.scrollTop = 0;
+    postFit();
+  });
+  onTap(el('todo-row'), e => {
+    e.stopPropagation();
+    const row = el('todo-row');
+    if (!row.classList.contains('has')) return;
+    row.classList.toggle('open');
+    todoRowSig = '';
+    renderTodoRow(currentTask());
+    postFit();
   });
 
   onTap(el('goal-toggle'), e => {

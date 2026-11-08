@@ -254,6 +254,7 @@ async function sendFloat(key, b) {
       model: modelOf(k),
       permission: permissionOf(s.session),
       goal: goalOf(s.session),
+      todos: todosOf(s.session),
       commands: commandsOf(s.session),
       since: s.turnStart || 0,
       stats: {
@@ -494,6 +495,25 @@ function goalOf(session) {
 }
 
 /**
+ * 会话当前的任务清单（todo_write 的 `todos` 投影）：[{content, status}]。
+ * 每轮开始会清空，所以它就是「这一轮准备做的事」。没写过时是 null。
+ */
+function todosOf(session) {
+  if (!projections || !session) return null
+  try {
+    const snap = projections.snapshot(session, ['todos'])
+    const list = snap?.values?.todos
+    if (!Array.isArray(list) || !list.length) return null
+    return list.slice(0, 40).map(item => ({
+      content: String(item?.content || '').slice(0, 200),
+      status: String(item?.status || 'pending'),
+    }))
+  } catch {
+    return null
+  }
+}
+
+/**
  * 会话当前的权限预设（dsh 的 permissions 投影）。
  * 只读 current/names，真正的写入走 /permission 命令，和 Web 客户端是同一条路。
  */
@@ -670,6 +690,7 @@ function publishFloat(activeKey) {
       model: modelOf(k),
       permission: permissionOf(s.session),
       goal: goalOf(s.session),
+      todos: todosOf(s.session),
       commands: commandsOf(s.session),
       since: s.turnStart || 0,
       stats: {
