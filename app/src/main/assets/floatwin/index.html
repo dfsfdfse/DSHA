@@ -50,7 +50,6 @@
     --hover: rgba(255, 255, 255, .08);
   }
   /* 深色只需要补那些没有 token 的地方；窗口/卡片/按钮的颜色都由变量决定 */
-  body.dark .tab { background: var(--selector); }
   body.dark .thumb, body.dark .file-chip { background: var(--selector); }
   body.dark .msg-body code, body.dark .msg-body .path {
     background: rgba(255,255,255,.08); color: rgb(216,222,232);
@@ -1474,7 +1473,9 @@
     const title = document.createElement('span');
     title.className = 'msg-title';
     if (trace && (kind === 'assistant' || kind === 'user')) {
-      const text = String(m.text || m.title || '').trim().split('\n')[0];
+      const raw = String(m.text || m.title || '').trim().split('\n')[0];
+      // 压成一行时去掉 markdown 标记（## / - / ** / `），否则会显示成「## 编译结果」
+      const text = raw.replace(/^#{1,6}\s*/, '').replace(/^[-*+]\s+/, '').replace(/[*`]/g, '').trim();
       title.textContent = (kind === 'user' ? '提问' : '回复') + (text ? ' · ' + text : '');
     } else if (kind === 'tool' || kind === 'think') {
       const base = m.title || (kind === 'think' ? '思考' : '工具调用');
