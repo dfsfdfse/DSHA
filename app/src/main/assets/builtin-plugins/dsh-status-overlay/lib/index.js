@@ -1453,6 +1453,7 @@ function startVoice(ctx) {
     watchVoice(ctx, VOICE_IN, VOICE_OUT, 400),
     watchVoice(ctx, WAKE_IN, WAKE_OUT, 250),
   ]
+  timers.push(watchdog)
   ctx.on('dispose', () => {
     for (const timer of timers) {
       try { clearInterval(timer) } catch { }
@@ -1474,6 +1475,16 @@ function watchVoice(ctx, input, output, every) {
       renameSync(tmp, output)
     } catch { /* 结果写不进去就保持安静 */ }
   }
+  // 看门狗：busy 卡死（推理进程挂掉等）超过 35 秒就强制复位，别让队列永远堵着
+  const watchdog = setInterval(() => {
+    if (busy && Date.now() - busyAt > 35000) {
+      busy = false
+      write({ seq: busySeq, error: '识别超时（已重置），请重试' })
+    }
+  }, 5000)
+  if (typeof watchdog?.unref === 'function') watchdog.unref()
+  let busyAt = 0
+  let busySeq = 0
   const timer = setInterval(async () => {
     if (busy) return
     try {
@@ -1489,11 +1500,20 @@ function watchVoice(ctx, input, output, every) {
       }
       lastSeq = seq
       busy = true
+      busyAt = Date.now()
+      busySeq = seq
       const audio = Buffer.from(message.audio, 'base64')
       try {
         const spec = stt.resolve({ audio, language: 'zh' })
         const controller = new AbortController()
-        const result = await stt.transcribe(spec, controller.signal)
+        // 硬超时：单段最长 25 秒；到点主动取消，绝不让一次卡死堵住整个通道
+        const limit = setTimeout(() => controller.abort(), 25000)
+        let result
+        try {
+          result = await stt.transcribe(spec, controller.signal)
+        } finally {
+          clearTimeout(limit)
+        }
         const text = typeof result === 'string'
           ? result
           : (result?.text ?? result?.transcript ?? '')
@@ -1502,6 +1522,7 @@ function watchVoice(ctx, input, output, every) {
         write({ seq, error: '语音转写失败：' + String(error?.message || error).slice(0, 80) })
       } finally {
         busy = false
+        busyAt = 0
       }
     } catch { /* 轮询本身出错不影响 agent */ }
   }, every)
