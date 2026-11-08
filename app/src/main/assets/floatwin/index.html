@@ -794,7 +794,12 @@
   body.fw #fwbody { display: flex; flex-direction: column; min-height: 0; }
   body.t2 #fwbody { flex: 1 1 auto; }
   /* 会话管理面板：卡片内整窗覆盖，点标签上的「列表」或长按标签打开 */
-  body.fw #fwlist { color: var(--fw-sub); width: 16px; height: 24px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; flex: none; }
+  /* 不要写死高度：这一行 30px、图标按钮靠 stretch 撑满再居中，
+     写死 24px 会贴着顶边，和 ＋／计时差 3px 对不齐 */
+  body.fw #fwlist {
+    color: var(--fw-sub); width: 16px; padding: 0; border: 0; background: transparent;
+    display: grid; place-items: center; flex: none; align-self: stretch;
+  }
   body.fw #fwlist svg { width: 13px; height: 13px; display: block; }
   body.fw #fwlist:active { color: var(--fw-text); }
   #fwsheet {
