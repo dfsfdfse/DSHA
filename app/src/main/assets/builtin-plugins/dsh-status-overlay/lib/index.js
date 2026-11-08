@@ -742,7 +742,39 @@ function closeLive(b, depth) {
   return true
 }
 
+/** 思考边写边更新一条「进行中的思考」，悬浮窗能实时看到；连续多段并进同一条。 */
+function updateLiveThink(b, depth) {
+  const acc = String(b.thinkAcc || '').trim()
+  if (!acc) return
+  let msg = b.thinkMsg
+  if (!msg || !b.messages.includes(msg)) {
+    const last = b.messages[b.messages.length - 1]
+    if (last && last.kind === 'think') {
+      msg = last
+      b.thinkBase = String(last.text || '') + '\n'
+    } else {
+      msg = { depth, kind: 'think', title: '思考', text: '', at: Date.now() }
+      b.messages.push(msg)
+      if (b.messages.length > 40) b.messages.splice(0, b.messages.length - 40)
+      b.thinkBase = ''
+    }
+    b.thinkMsg = msg
+  }
+  msg.live = true
+  msg.text = (String(b.thinkBase || '') + acc).slice(-4000)
+}
+
 function pushThink(b, depth) {
+  if (b.thinkMsg) {
+    // 已经在实时更新的那条：收尾即可
+    updateLiveThink(b, depth)
+    delete b.thinkMsg.live
+    b.thinkMsg.at = Date.now()
+    b.thinkMsg = undefined
+    b.thinkBase = ''
+    b.thinkAcc = ''
+    return
+  }
   const acc = String(b.thinkAcc || '').trim()
   b.thinkAcc = ''
   if (!acc) return
@@ -879,8 +911,11 @@ export function apply(ctx) {
         // 正文与思考各留一条缓冲：思考结束转正文时，两段不该被拼成一句
         if (isThink) {
           b.think = tail((b.think || '') + piece)
-          b.thinkAcc = ((b.thinkAcc || '') + piece).slice(0, 4000)
+          b.thinkAcc = ((b.thinkAcc || '') + piece).slice(-4000)
+          updateLiveThink(b, depth)
+          b.updated = Date.now()
           schedule(key, 'reasoning', () => b.think)
+          scheduleFloat(key, b)
         } else {
           if (b.thinkAcc) {
             pushThink(b, depth)
@@ -985,6 +1020,8 @@ export function apply(ctx) {
         b.line = ''
         b.think = ''
         b.thinkAcc = ''
+        if (b.thinkMsg) { delete b.thinkMsg.live; b.thinkMsg = undefined }
+        b.thinkBase = ''
         closeLive(b, depth)
         b.turnStart = Date.now()
         b.turns = (b.turns || 0) + 1
