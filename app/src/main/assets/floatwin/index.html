@@ -1193,8 +1193,9 @@
   /** dsh 原文：conversation.placeholder.default */
   const PLACEHOLDER = '发消息或创建任务, / 调用指令, @ 文件或对话';
   /** 迷你档一行放不下整句，换成短的。 */
+  let wakeWords = '';
   const placeholderNow = () => (!document.body.classList.contains('fw') ? PLACEHOLDER
-    : selectedId === 'new' ? '新会话：发消息…' : '发消息…');
+    : (selectedId === 'new' ? '新会话：' : '') + (wakeWords ? '说「' + wakeWords.split(/[,，|;；/]/)[0].trim() + '」或输入…' : '发消息…'));
 
   let pendingImage = '';
   let pendingFile = '';
@@ -1793,6 +1794,10 @@
 
   function paintFrame(v) {
       if (typeof v.tier === 'number') applyTier(v.tier);
+      if (typeof v.wake === 'string' && v.wake !== wakeWords) {
+        wakeWords = v.wake;
+        if (!pendingImage && !document.body.classList.contains('voice-on')) el('ask').placeholder = placeholderNow();
+      }
       document.body.classList.toggle('dark', v.theme === 'dark');
       if (typeof v.alpha === 'number') {
         const pct = Math.max(50, Math.min(100, Math.round(v.alpha)));

@@ -1790,6 +1790,7 @@ public final class FloatWindow {
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         payload.put("theme", dark ? "dark" : "light");
         payload.put("tier", tier);
+        payload.put("wake", FloatWake.isRunning() ? FloatWake.words(ctx) : "");
       }
       return payload.toString();
     } catch (Exception ignored) {
@@ -1959,6 +1960,7 @@ public final class FloatWindow {
             FloatWake.stop();
             if (!recording && !micStarting) FloatMicService.stop(app);
             refreshSettings(app);
+            if (web != null && !realPage) pushPayload();
             return;
           }
           prefs(app).edit().putBoolean(FloatWake.K_WAKE, true).apply();
@@ -2001,6 +2003,7 @@ public final class FloatWindow {
             toast(app, "语音唤醒已开启：说「" + FloatWake.words(app) + "」");
           }
           refreshSettings(app);
+          if (web != null && !realPage) pushPayload();
         });
   }
 

@@ -27,6 +27,13 @@ final class FloatWake {
 
   private static final String GUEST_IN = "float-wake.json";
   private static final String GUEST_OUT = "float-wake-result.json";
+  /** 诊断：每 2 秒写一次监听状态（音量、门限、切段数、最近识别文本），排查“叫不醒”。 */
+  private static final String GUEST_STATUS = "float-wake-status.json";
+  private static volatile String lastText = "";
+  private static volatile String lastErr = "";
+  private static volatile int segs;
+  private static volatile int sent;
+  private static volatile int wakes;
   private static final int RATE = 16000;
   private static final Handler main = new Handler(Looper.getMainLooper());
 
@@ -118,19 +125,21 @@ final class FloatWake {
               android.media.AudioFormat.ENCODING_PCM_16BIT);
       android.media.AudioRecord rec =
           new android.media.AudioRecord(
-              android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+              android.media.MediaRecorder.AudioSource.MIC,
               RATE,
               android.media.AudioFormat.CHANNEL_IN_MONO,
               android.media.AudioFormat.ENCODING_PCM_16BIT,
               Math.max(min, RATE));
       if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
         rec.release();
+        lastErr = "AudioRecord 未初始化（麦克风被占用？）";
         return null;
       }
       rec.startRecording();
       recorder = rec;
       return rec;
     } catch (Throwable error) {
+      lastErr = "打开麦克风失败：" + error;
       return null;
     }
   }
@@ -149,8 +158,16 @@ final class FloatWake {
     int loudRun = 0;
     double noise = -1;
     long busyUntil = 0;
+    long lastStatus = 0;
+    double peakRms = 0;
+    long zeroFrames = 0;
+    long frames = 0;
     while (running && generation == gen) {
       if (paused) {
+        if (System.currentTimeMillis() - lastStatus >= 2000) {
+          lastStatus = System.currentTimeMillis();
+          writeStatus(app, 0, noise, 0, 0, 0, false);
+        }
         closeRecorder();
         seg = null;
         preRoll.clear();
@@ -161,6 +178,7 @@ final class FloatWake {
       if (rec == null) {
         rec = openRecorder();
         if (rec == null) {
+          writeStatus(app, 0, 0, 0, 0, 0, false);
           sleep(1000);
           continue;
         }
@@ -184,16 +202,27 @@ final class FloatWake {
         sum += (long) v * v;
       }
       double rms = Math.sqrt((double) sum / Math.max(1, read / 2));
-      if (noise < 0) noise = rms;
-      double gate = Math.max(420, noise * 2.8);
+      if (noise < 0 || noise < 1) noise = Math.max(rms, 1);
+      double gate = Math.max(260, noise * 2.5);
       boolean loud = rms > gate;
+      frames++;
+      if (sum == 0) zeroFrames++;
+      if (rms > peakRms) peakRms = rms;
+      long now = System.currentTimeMillis();
+      if (now - lastStatus >= 2000) {
+        lastStatus = now;
+        writeStatus(app, peakRms, noise, gate, frames, zeroFrames, seg != null);
+        peakRms = 0;
+        frames = 0;
+        zeroFrames = 0;
+      }
       if (!loud && seg == null) noise = noise * 0.97 + rms * 0.03;
       byte[] copy = java.util.Arrays.copyOf(frame, read);
       if (seg == null) {
         preRoll.addLast(copy);
         while (preRoll.size() > preRollFrames) preRoll.removeFirst();
         loudRun = loud ? loudRun + 1 : 0;
-        if (loudRun >= 3 && System.currentTimeMillis() >= busyUntil) {
+        if (loudRun >= 2 && System.currentTimeMillis() >= busyUntil) {
           seg = new java.io.ByteArrayOutputStream();
           for (byte[] b : preRoll) seg.write(b, 0, b.length);
           segFrames = preRoll.size();
@@ -210,7 +239,9 @@ final class FloatWake {
         int speechFrames = segFrames - silent;
         seg = null;
         loudRun = 0;
+        segs++;
         if (speechFrames >= minFrames) {
+          sent++;
           // 转写期间不再切新段，避免把 SenseVoice 排满
           busyUntil = System.currentTimeMillis() + 60_000;
           String text = transcribe(app, pcm, gen);
@@ -244,16 +275,54 @@ final class FloatWake {
         if (json == null || json.isEmpty()) continue;
         JSONObject data = new JSONObject(json);
         if (data.optLong("seq", 0) != seq) continue;
-        return data.optString("text", "");
+        String err = data.optString("error", "");
+        if (!err.isEmpty()) lastErr = err;
+        String text = data.optString("text", "");
+        lastText = text;
+        return text;
       }
-    } catch (Throwable ignored) {
+      lastErr = "转写超时（dsh 没运行或插件未更新？）";
+    } catch (Throwable error) {
+      lastErr = "转写失败：" + error;
     }
     return null;
+  }
+
+  private static void writeStatus(
+      Context app, double peak, double noise, double gate, long frames, long zero, boolean inSeg) {
+    try {
+      File f = FloatWindow.guestFile(app, GUEST_STATUS);
+      if (f == null) return;
+      JSONObject o =
+          new JSONObject()
+              .put("t", System.currentTimeMillis())
+              .put("running", running)
+              .put("paused", paused)
+              .put("peak", Math.round(peak))
+              .put("noise", Math.round(noise))
+              .put("gate", Math.round(gate))
+              .put("frames", frames)
+              .put("zeroFrames", zero)
+              .put("inSeg", inSeg)
+              .put("segs", segs)
+              .put("sent", sent)
+              .put("wakes", wakes)
+              .put("words", words(app))
+              .put("lastText", lastText)
+              .put("lastErr", lastErr);
+      File tmp = new File(f.getPath() + ".tmp");
+      try (java.io.FileOutputStream os = new java.io.FileOutputStream(tmp)) {
+        os.write(o.toString().getBytes(StandardCharsets.UTF_8));
+      }
+      tmp.renameTo(f);
+    } catch (Throwable ignored) {
+    }
   }
 
   private static void handle(Context app, String text) {
     String command = match(text, words(app));
     if (command == null) return;
+    wakes++;
     final String cmd = command;
     main.post(() -> FloatWindow.onWake(app, cmd));
   }
