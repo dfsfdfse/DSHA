@@ -8,6 +8,7 @@ const PROMPT = [
   '■ 三条通道，按这个顺序选：',
   '  1) Ubuntu 工作区内的开发与文件操作使用普通工具；Android 设备文件写入必须走受保护的设备 shell。',
   '  2) App 层接口 /app/*（走 127.0.0.1:3090，零配置，不需要 ADB，也不需要 Shizuku）',
+  '     悬浮窗：/app/floatwin?action=open&id=&url=&w=&h=&alpha= 可把任意页面悬浮出来（也可 html= 直接渲染）',
   '  3) 设备 shell（adb-shell 命令自动选择已授权的 root、Shizuku 或 ADB）—— 查询设备日志、普通设备文件操作和结束用户应用。',
   '  例：查设备状态用 /app/device 而不是 dumpsys battery；启动应用用 /app/launch 而不是 am start。',
 

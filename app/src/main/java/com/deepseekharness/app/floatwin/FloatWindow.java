@@ -309,6 +309,11 @@ public final class FloatWindow {
     }
   }
 
+  /** 窗口当前是否开着（入口打开的那扇）。 */
+  public static boolean isOpen() {
+    return web != null;
+  }
+
   public static void hide(Context context) {
     main.post(FloatWindow::dismiss);
   }

@@ -246,14 +246,8 @@ async function sendFloat(key, b) {
     count: tasks.length,
   })
   writeState(payload)
-  try {
-    await fetch(`${FLOAT}?json=${encodeURIComponent(payload)}`, {
-      headers: { 'X-Token': tok },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
-  } catch {
-    // 悬浮窗不是关键路径，失败静默
-  }
+  // 只写文件：HTTP 端点会去创建窗口，导致 dsh 每回复一次就弹窗。
+
 }
 
 let projections
