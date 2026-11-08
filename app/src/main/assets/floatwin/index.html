@@ -272,6 +272,26 @@
 
 
   /* 上下文用量：底部一行概览，点开是参考 dsh 的卡片（分段条 + 三段明细） */
+  /* 指令菜单：dsh ui-commands PopupSelectView.module.css */
+  #cmd-menu {
+    position: absolute; left: 10px; right: 10px; bottom: 104px; z-index: 7;
+    padding: 4px; border: 1px solid var(--line); border-radius: 16px;
+    background: var(--field); box-shadow: 0 12px 30px rgba(0,0,0,.18);
+    max-height: min(320px, 46vh); overflow-y: auto;
+  }
+  #cmd-menu[hidden] { display: none; }
+  #cmd-menu button {
+    display: flex; align-items: baseline; gap: 6px;
+    width: 100%; padding: 5px 7px; border: none; border-radius: 12px;
+    background: transparent; color: var(--fg); font-family: inherit;
+    font-size: 12px; text-align: left;
+  }
+  #cmd-menu button.on { background: var(--hover); }
+  #cmd-menu .cname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cmd-menu .cdesc { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--tertiary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cmd-menu.tip { padding: 7px 8px; font-size: 12px; color: var(--tertiary); }
+
   /* 权限菜单：和模型菜单同一套 Menu 规格 */
   #perm-menu {
     position: absolute; left: 10px; bottom: 104px; z-index: 6;
@@ -595,6 +615,7 @@
     <div class="row"><span>输入栏</span><div class="sw on" id="sw-compose"><i></i></div></div>
     <div class="hint">拖右下角或右侧/下边缘可改宽高；≡ 再点一次收起。</div>
   </div>
+  <div id="cmd-menu" hidden></div>
   <div id="perm-menu" hidden></div>
   <div id="model-menu" hidden></div>
   <div id="notice" hidden></div>
@@ -1047,6 +1068,7 @@
         tasks: (v.tasks || []).slice(0, 8),
         active: v.active || (v.tasks && v.tasks[0] ? v.tasks[0].id : '') || (threads[0] ? threads[0].id : ''),
         models: Array.isArray(v.models) ? v.models : [],
+        commands: Array.isArray(v.commands) ? v.commands : (state.commands || []),
         threads,
       };
       syncBusy(state.tasks.some(t => !t.done));
@@ -1067,6 +1089,7 @@
       el('live').hidden = !!task.done;
       renderUsage(task.usage);
       state.modelName = task.model ? String(task.model) : (state.modelName || '');
+      if (Array.isArray(task.commands)) state.commands = task.commands;
       state.permission = task.permission || state.permission || null;
       renderPermission();
       renderGoal(task);
@@ -1375,6 +1398,7 @@
     post('focus', { value: false });
     post('send', { text, image, file, session });
     setSending(true);
+    if (el('cmd-menu')) el('cmd-menu').hidden = true;
     appendEcho(text, !!(image || file));
     if (!session) {
       // 完全不知道投给谁：请宿主重新读状态，并说明正在做什么
@@ -1444,6 +1468,63 @@
     el('file-chip').hidden = true;
     if (!pendingImage) el('attach-bar').hidden = true;
   });
+  /** / 指令菜单：输入以 / 开头且还没空格时列出可用命令（dsh 的 popupSelect）。 */
+  function updateCommandMenu() {
+    const menu = el('cmd-menu');
+    if (!menu) return;
+    const text = String(el('ask').value || '');
+    if (!text.startsWith('/') || /\s/.test(text)) { menu.hidden = true; return; }
+    const query = text.slice(1).toLowerCase();
+    const list = (state.commands || []).filter(c => String(c.n || '').toLowerCase().startsWith(query)).slice(0, 12);
+    if (!list.length) {
+      if ((state.commands || []).length === 0) {
+        menu.textContent = '没有可用的指令';
+        menu.className = 'tip';
+        menu.hidden = false;
+        placeCommandMenu();
+      } else {
+        menu.hidden = true;
+      }
+      return;
+    }
+    menu.className = '';
+    menu.textContent = '';
+    list.forEach((c, i) => {
+      const b = document.createElement('button');
+      if (i === 0) b.className = 'on';
+      const name = document.createElement('span');
+      name.className = 'cname';
+      name.textContent = '/' + c.n;
+      const desc = document.createElement('span');
+      desc.className = 'cdesc';
+      desc.textContent = c.d || '';
+      b.append(name, desc);
+      onTap(b, ev => {
+        ev.stopPropagation();
+        menu.hidden = true;
+        el('ask').value = '/' + c.n + ' ';
+        try { el('ask').style.height = '36px'; } catch (_) {}
+        growAsk();
+        post('focus', { value: true });
+        el('ask').focus();
+      });
+      menu.appendChild(b);
+    });
+    menu.hidden = false;
+    placeCommandMenu();
+  }
+
+  function placeCommandMenu() {
+    const menu = el('cmd-menu');
+    const compose = el('compose');
+    if (!menu || !compose) return;
+    const goal = el('goalbar');
+    const dock = el('dock');
+    const extra = goal && !goal.hidden ? goal.offsetHeight + 6 : 0;
+    const foot = dock && !dock.hidden ? dock.offsetHeight : 0;
+    menu.style.bottom = (compose.offsetHeight + extra + foot + 6) + 'px';
+  }
+
   /** 目标条图标：dsh GoalBar 用的 goal/pause/play/trash 原稿。 */
   const GOAL_GLYPHS = {
     goal: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M14.5001 8C14.5 9.28552 14.1188 10.5422 13.4045 11.611C12.6903 12.6799 11.6752 13.5129 10.4875 14.0049C9.29982 14.4968 7.99295 14.6255 6.73212 14.3747C5.4713 14.124 4.31314 13.505 3.4041 12.596C2.49514 11.687 1.87614 10.5288 1.62537 9.26798C1.37459 8.00716 1.50331 6.70028 1.99525 5.51261C2.48719 4.32494 3.32025 3.30981 4.3891 2.59557C5.45795 1.88134 6.71458 1.50008 8.0001 1.5" stroke="currentColor"/><path d="M11.5 8C11.5001 8.69227 11.2948 9.36901 10.9102 9.94463C10.5257 10.5202 9.97901 10.9689 9.33944 11.2338C8.69986 11.4987 7.99609 11.5681 7.31712 11.433C6.63816 11.2979 6.01449 10.9645 5.52501 10.475C5.03548 9.98552 4.70209 9.36185 4.56702 8.68289C4.43195 8.00392 4.50127 7.30015 4.76619 6.66057C5.03112 6.021 5.47976 5.47436 6.05538 5.08978C6.631 4.70519 7.30774 4.49995 8.00001 4.5" stroke="currentColor"/></svg>',
@@ -1656,8 +1737,9 @@
   });
   function growAsk() {
     ask.style.height = 'auto';
-    ask.style.height = Math.min(84, Math.max(30, ask.scrollHeight)) + 'px';
+    ask.style.height = Math.min(84, Math.max(36, ask.scrollHeight)) + 'px';
     refreshSendMode();
+    updateCommandMenu();
   }
   ask.addEventListener('input', growAsk);
 
@@ -1675,6 +1757,8 @@
     if (!menu.hidden && !menu.contains(e.target) && e.target.id !== 'model' && !e.target.closest('#model')) {
       menu.hidden = true;
     }
+    const cmdMenu = el('cmd-menu');
+    if (cmdMenu && !cmdMenu.hidden && !cmdMenu.contains(e.target)) cmdMenu.hidden = true;
     const permMenu = el('perm-menu');
     if (!permMenu.hidden && !permMenu.contains(e.target) && !e.target.closest('#perm')) {
       permMenu.hidden = true;

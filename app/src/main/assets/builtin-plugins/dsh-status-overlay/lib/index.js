@@ -240,6 +240,7 @@ async function sendFloat(key, b) {
       model: modelOf(k),
       permission: permissionOf(s.session),
       goal: goalOf(s.session),
+      commands: commandsOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -320,6 +321,7 @@ function liveAgent(agents, wanted) {
   }
 }
 
+let commandsApi
 let goalsApi
 let permissionApi
 let defaultModelApi
@@ -424,6 +426,19 @@ async function loadHistory(sessionId) {
     return true
   } catch {
     return false
+  }
+}
+
+/** 当前会话可用的 / 指令（commands.list 的 descriptor）。 */
+function commandsOf(session) {
+  if (!commandsApi || !session || !agentsApi) return []
+  try {
+    const agent = agentsApi.get(String(session.id || ''))
+    if (!agent) return []
+    const list = commandsApi.list(agent) || []
+    return list.slice(0, 40).map(c => ({ n: String(c.name), d: String(c.description || '') }))
+  } catch {
+    return []
   }
 }
 
@@ -614,6 +629,7 @@ function publishFloat(activeKey) {
       model: modelOf(k),
       permission: permissionOf(s.session),
       goal: goalOf(s.session),
+      commands: commandsOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -731,6 +747,10 @@ export function apply(ctx) {
     queryApi = scoped.sessionQuery
     void refreshThreads()
     return () => { queryApi = undefined }
+  })
+  ctx.inject(['commands'], scoped => {
+    commandsApi = scoped.commands
+    return () => { commandsApi = undefined }
   })
   ctx.inject(['goals'], scoped => {
     goalsApi = scoped.goals
@@ -1119,6 +1139,26 @@ function startInbox(ctx) {
       if (cancel) {
         try { agent.cancel({ kind: 'user' }, { keepInbox: true }) } catch { }
         return
+      }
+      // / 开头的输入如果命中已注册命令，就走 dsh 的命令执行路径（和 Web 一样）
+      if (text.trim().startsWith('/')) {
+        const name = text.trim().slice(1).split(/\s+/)[0]
+        const known = agents && commandsApi ? (commandsApi.list(agent) || []) : []
+        if (name && known.some(c => c.name === name)) {
+          try {
+            const done = await commandsApi.execute(agent, text.trim(), [], AbortSignal.timeout(15000))
+            const kind = done?.result?.kind
+            if (kind === 'error') {
+              setNotice('指令失败：' + String(done?.result?.text || '').slice(0, 70))
+            } else {
+              notice = ''
+            }
+          } catch (error) {
+            setNotice('指令失败：' + String(error?.message || error).slice(0, 70))
+          }
+          publishFloat('')
+          return
+        }
       }
       const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
       const parts = []
