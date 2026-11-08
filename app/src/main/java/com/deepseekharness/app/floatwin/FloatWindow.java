@@ -469,11 +469,31 @@ public final class FloatWindow {
     view.getSettings().setAllowFileAccess(false);
     view.getSettings().setAllowContentAccess(false);
     view.getSettings().setSupportZoom(false);
-    // dsh 原生页面在 360dp 窗口里偏大：按 85% 缩放；自绘页保持 100%。
-    view.getSettings().setTextZoom(loadCustomPage ? 100 : 85);
+    // dsh 原生页面在 360dp 窗口里偏大：默认 75% 缩放；自绘页保持 100%。
+    int zoom = loadCustomPage ? 100 : Math.max(50, Math.min(100, prefs(app).getInt("floatwin_zoom", 75)));
+    view.getSettings().setTextZoom(zoom);
     view.setVerticalScrollBarEnabled(false);
     view.setHorizontalScrollBarEnabled(false);
-    view.setWebViewClient(new WebViewClient());
+    view.setWebViewClient(
+        new WebViewClient() {
+          @Override
+          public void onPageFinished(WebView v, String url) {
+            if (realPage) {
+              // dsh 页面自己带标题行，给窗口按钮腾出顶部一条，别压在「标准模式 / 文件夹」上
+              try {
+                v.evaluateJavascript(
+                    "(function(){"
+                        + "var r=document.getElementById('root')||document.body;"
+                        + "if(!r||r.dataset.fwPad)return;"
+                        + "r.dataset.fwPad='1';r.style.boxSizing='border-box';"
+                        + "r.style.paddingTop='26px';"
+                        + "})();",
+                    null);
+              } catch (Throwable ignored) {
+              }
+            }
+          }
+        });
     view.setWebChromeClient(
         new android.webkit.WebChromeClient() {
           @Override
@@ -664,14 +684,25 @@ public final class FloatWindow {
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
             == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     view.setText(label);
-    view.setTextSize(13);
-    view.setTextColor(dark ? 0xF2FFFFFF : 0xF217181C);
+    view.setTextSize(15);
+    // 和 dsh 的头像/图标按钮一致：无底色，只有 label-secondary 的前景色，按下才浮一层 hover。
+    view.setTextColor(dark ? 0xB3CFD3D6 : 0xB361666B);
     view.setGravity(Gravity.CENTER);
-    android.graphics.drawable.GradientDrawable bg =
+    android.graphics.drawable.GradientDrawable normal =
         new android.graphics.drawable.GradientDrawable();
-    bg.setColor(dark ? 0x33FFFFFF : 0x1A000000);
-    bg.setCornerRadius(dp(app, 6));
-    view.setBackground(bg);
+    normal.setColor(0x00000000);
+    normal.setCornerRadius(dp(app, 999));
+    android.graphics.drawable.GradientDrawable pressed =
+        new android.graphics.drawable.GradientDrawable();
+    pressed.setColor(dark ? 0x14FFFFFF : 0x0F000000);
+    pressed.setCornerRadius(dp(app, 999));
+    view.setBackground(
+        new android.graphics.drawable.StateListDrawable() {
+          {
+            addState(new int[] {android.R.attr.state_pressed}, pressed);
+            addState(new int[] {}, normal);
+          }
+        });
     return view;
   }
 
