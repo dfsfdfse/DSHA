@@ -84,6 +84,8 @@ public final class FloatWindow {
   private static volatile boolean recording;
   /** 每次录音/取消递增；旧录音线程看到不一致就退出、不再回推。 */
   private static volatile long voiceRun;
+  /** 正在经透明壳启动麦克风前台服务。 */
+  private static boolean micStarting;
   /** 正在等转写结果的录音序号；0=没有在等。 */
   private static long voicePendingSeq;
   private static android.media.AudioRecord recorder;
@@ -1706,9 +1708,82 @@ public final class FloatWindow {
       stopAndTranscribe();
       return;
     }
+    if (micStarting) return;
+    // 悬浮窗时应用在后台，直接录只会拿到全零数据：先经透明壳拿前台身份，
+    // 申请权限并启动 microphone 前台服务，服务就绪后才真正开录。
+    micStarting = true;
+    final long run = ++voiceRun;
+    try {
+      ctx.startActivity(
+          new android.content.Intent(ctx, FloatMicActivity.class)
+              .addFlags(
+                  android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                      | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION
+                      | android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS));
+    } catch (Throwable error) {
+      micStarting = false;
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('无法启动录音')");
+      return;
+    }
+    main.postDelayed(
+        () -> {
+          if (!micStarting || voiceRun != run) return;
+          micStarting = false;
+          FloatMicActivity.close();
+          evaluate("window.dshFloat&&window.dshFloat.onVoiceError('麦克风启动超时，请重试')");
+        },
+        8000);
+  }
+
+  /** 透明壳里的 microphone 前台服务已启动（或失败）。 */
+  static void onMicService(boolean ok) {
+    main.post(
+        () -> {
+          if (!micStarting) {
+            // 已取消/超时：服务不需要了
+            if (ok) stopMicService();
+            FloatMicActivity.close();
+            return;
+          }
+          micStarting = false;
+          if (!ok) {
+            FloatMicActivity.close();
+            evaluate("window.dshFloat&&window.dshFloat.onVoiceError('系统不允许后台录音，请打开 RCHA 后再试')");
+            return;
+          }
+          beginRecording();
+          // 录音已在前台身份下开始，稍后关掉透明壳
+          main.postDelayed(FloatMicActivity::close, 250);
+        });
+  }
+
+  static void onMicDenied() {
+    main.post(
+        () -> {
+          micStarting = false;
+          evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
+        });
+  }
+
+  private static void stopMicService() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) return;
+    try {
+      ctx.stopService(new android.content.Intent(ctx, FloatMicService.class));
+    } catch (Throwable ignored) {
+    }
+  }
+
+  private static void beginRecording() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) {
+      stopMicService();
+      return;
+    }
     if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
         != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限，请在系统设置里允许 RCHA 使用麦克风')");
+      stopMicService();
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
       return;
     }
     try {
@@ -1726,6 +1801,7 @@ public final class FloatWindow {
               Math.max(min, rate));
       if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
         rec.release();
+        stopMicService();
         evaluate("window.dshFloat&&window.dshFloat.onVoiceError('麦克风被占用，录音启动失败')");
         return;
       }
@@ -1744,6 +1820,7 @@ public final class FloatWindow {
                 long lastPush = 0;
                 double noise = -1;
                 boolean spoke = false;
+                boolean heard = false;
                 long silentMs = 0;
                 String autoStop = null;
                 while (recording && voiceRun == run) {
@@ -1764,6 +1841,7 @@ public final class FloatWindow {
                     sum += (long) v * v;
                   }
                   double rms = n == 0 ? 0 : Math.sqrt((double) sum / n);
+                  if (sum > 0) heard = true;
                   long ms = buf.size() * 1000L / (16000 * 2);
                   // 前 0.4 秒估环境噪声，之后缓慢跟随较低值
                   if (ms <= 400) noise = noise < 0 ? rms : Math.min(noise, rms) * 0.5 + noise * 0.5;
@@ -1785,6 +1863,7 @@ public final class FloatWindow {
                             + (loud ? "true" : "false") + "," + (spoke ? "true" : "false") + ")";
                     main.post(() -> { if (voiceRun == run && recording) evaluate(js); });
                   }
+                  if (!heard && ms >= 1500) { autoStop = "muted"; break; }
                   if (spoke && silentMs >= 1800) { autoStop = "silence"; break; }
                   if (!spoke && ms >= 8000) { autoStop = "nothing"; break; }
                   if (ms >= 40000) { autoStop = "limit"; break; }
@@ -1794,7 +1873,10 @@ public final class FloatWindow {
                   main.post(
                       () -> {
                         if (voiceRun != run || !recording) return;
-                        if ("nothing".equals(why)) {
+                        if ("muted".equals(why)) {
+                          cancelVoice();
+                          evaluate("window.dshFloat&&window.dshFloat.onVoiceError('麦克风没有声音（被系统静音或被其他应用占用）')");
+                        } else if ("nothing".equals(why)) {
                           cancelVoice();
                           evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有听到声音，已停止')");
                         } else {
@@ -1808,6 +1890,7 @@ public final class FloatWindow {
       thread.start();
     } catch (Throwable error) {
       recording = false;
+      stopMicService();
       evaluate("window.dshFloat&&window.dshFloat.onVoiceError('录音启动失败')");
     }
   }
@@ -1815,7 +1898,9 @@ public final class FloatWindow {
   /** 关掉麦克风；不转写。 */
   private static void releaseRecorder() {
     recording = false;
+    micStarting = false;
     voiceRun++;
+    stopMicService();
     android.media.AudioRecord rec = recorder;
     recorder = null;
     try {
