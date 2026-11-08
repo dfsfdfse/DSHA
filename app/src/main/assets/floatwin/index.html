@@ -760,6 +760,8 @@
     <div class="row"><span>会话标签</span><div class="sw on" id="sw-tabs"><i></i></div></div>
     <div class="row"><span>上下文用量</span><div class="sw on" id="sw-usage"><i></i></div></div>
     <div class="row"><span>输入栏</span><div class="sw on" id="sw-compose"><i></i></div></div>
+    <div class="sep"></div>
+    <div class="row"><span>界面</span><button id="use-dsh" class="linkbtn">使用 dsh 原生界面</button></div>
     <div class="hint">拖右下角或右侧/下边缘可改宽高；≡ 再点一次收起。</div>
   </div>
   <div id="cmd-menu" hidden></div>
@@ -1965,6 +1967,11 @@
     });
     return true;
   }
+
+  onTap(el('use-dsh'), e => {
+    e.stopPropagation();
+    post('ui', { value: 'dsh' });
+  });
 
   onTap(el('view-chat'), e => { e.stopPropagation(); setView('chat', true); });
   onTap(el('view-trace'), e => { e.stopPropagation(); setView('trace', true); });

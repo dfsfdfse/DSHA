@@ -181,8 +181,36 @@ public final class FloatWindow {
   }
 
   /** 打开自绘聊天窗（入口按钮用）：绝不加载 dsh 页面，先用容器里最新的状态渲染。 */
+  /** 当前悬浮窗用哪套界面：dsh 原生 Web 界面（缩放后）或自绘界面。 */
+  private static final String K_UI = "floatwin_ui";
+
   public static void showCustom(Context context) {
     showCustom(context, 0, null);
+  }
+
+  /** 切到 dsh 自己的 Web 界面：直接加载 dsh 页面并按窗口宽度缩放。 */
+  private static void switchToDshUi(Context app) {
+    prefs(app).edit().putString(K_UI, "dsh").apply();
+    String url = webUrl(app);
+    if (url == null) {
+      evaluate("window.dshFloat&&window.dshFloat.onData({tasks:[]})");
+      return;
+    }
+    if (web != null) dismiss();
+    if (!create(app, false)) return;
+    realPage = true;
+    userClosed = false;
+    try {
+      web.loadUrl(url);
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** 切回自绘界面。 */
+  private static void switchToCustomUi(Context app) {
+    prefs(app).edit().putString(K_UI, "custom").apply();
+    if (web != null) dismiss();
+    showCustom(app, 0, null);
   }
 
   /**
@@ -197,6 +225,12 @@ public final class FloatWindow {
     main.post(
         () -> {
           if (!com.deepseekharness.app.OverlayController.permitted(app)) return;
+          // 默认用 dsh 自己的界面（缩放适配窗口）；切到「自绘」才加载内置页。
+          String ui = prefs(app).getString(K_UI, "dsh");
+          if (!"custom".equals(ui) && webUrl(app) != null) {
+            switchToDshUi(app);
+            return;
+          }
           if (web != null && realPage) dismiss();
           if (web == null && !create(app, true)) return;
           realPage = false;
@@ -435,7 +469,8 @@ public final class FloatWindow {
     view.getSettings().setAllowFileAccess(false);
     view.getSettings().setAllowContentAccess(false);
     view.getSettings().setSupportZoom(false);
-    view.getSettings().setTextZoom(100);
+    // dsh 原生页面在 360dp 窗口里偏大：按 85% 缩放；自绘页保持 100%。
+    view.getSettings().setTextZoom(loadCustomPage ? 100 : 85);
     view.setVerticalScrollBarEnabled(false);
     view.setHorizontalScrollBarEnabled(false);
     view.setWebViewClient(new WebViewClient());
@@ -512,7 +547,14 @@ public final class FloatWindow {
     frame.addView(overlayButton(app, "≡"), menuParams);
     frame.getChildAt(frame.getChildCount() - 1)
         .setOnClickListener(
-            v -> evaluate("window.dshFloat&&window.dshFloat.toggleMenu()"));
+            v -> {
+              if (realPage) {
+                Context ctx = web == null ? null : web.getContext();
+                if (ctx != null) switchToCustomUi(ctx);
+                return;
+              }
+              evaluate("window.dshFloat&&window.dshFloat.toggleMenu()");
+            });
 
     FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
     closeParams.gravity = Gravity.TOP | Gravity.END;
@@ -567,9 +609,10 @@ public final class FloatWindow {
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             : WindowManager.LayoutParams.TYPE_PHONE;
     lp.flags =
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+    // dsh 原生页面自己带输入框，窗口必须可获焦才能弹键盘；自绘页沿用「失焦即不可获焦」。
+    if (loadCustomPage) lp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
     lp.format = PixelFormat.TRANSLUCENT;
     int screenW = screenW(app);
     int screenH = screenH(app);
@@ -810,6 +853,11 @@ public final class FloatWindow {
         case "thread": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) writeWant(ctx, "thread", p.optString("session", ""));
+          return;
+        }
+        case "ui": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null && "dsh".equals(p.optString("value", ""))) switchToDshUi(ctx);
           return;
         }
         case "threads": {
