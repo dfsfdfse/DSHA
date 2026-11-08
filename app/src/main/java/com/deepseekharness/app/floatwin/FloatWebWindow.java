@@ -320,6 +320,36 @@ public final class FloatWebWindow {
         });
     menu.addView(bar);
 
+    android.widget.TextView reset = new android.widget.TextView(app);
+    reset.setText("重置位置与大小");
+    reset.setTextSize(11);
+    reset.setTextColor(0xCC7AA2FF);
+    reset.setPadding(0, dp(8), 0, 0);
+    reset.setOnClickListener(
+        v -> {
+          try {
+            prefs().edit()
+                .remove("fw_" + id + "_x")
+                .remove("fw_" + id + "_y")
+                .remove("fw_" + id + "_w")
+                .remove("fw_" + id + "_h")
+                .apply();
+          } catch (Throwable ignored) {
+          }
+          int screenW = app.getResources().getDisplayMetrics().widthPixels;
+          int screenH = app.getResources().getDisplayMetrics().heightPixels;
+          params.width = Math.min(screenW, dp(320));
+          params.height = Math.min(screenH, dp(420));
+          params.x = Math.max(0, (screenW - params.width) / 2);
+          params.y = Math.max(0, (screenH - params.height) / 3);
+          try {
+            if (wm != null && root.isAttachedToWindow()) wm.updateViewLayout(root, params);
+          } catch (Throwable ignored) {
+          }
+          menu.setVisibility(View.GONE);
+        });
+    menu.addView(reset);
+
     android.widget.TextView hint = new android.widget.TextView(app);
     hint.setText("拖右下角改宽高 · 顶部拖动移动");
     hint.setTextSize(10);
