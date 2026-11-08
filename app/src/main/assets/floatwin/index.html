@@ -59,6 +59,7 @@
   }
   /* 唯一的拖动区：与原生触摸带等高 */
   #head {
+    flex: 0 0 auto;
     height: 22px;
     display: flex; align-items: center; gap: 6px;
     overflow: hidden;
@@ -81,6 +82,7 @@
   #count[hidden] { display: none; }
 
   #tabs {
+    flex: 0 0 auto;
     display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
     margin: 4px 0 6px; padding-bottom: 2px; scrollbar-width: none;
   }
@@ -155,13 +157,37 @@
     flex: 0 0 auto; align-self: flex-start; margin-top: 2px;
     font-size: 10px; color: rgba(23,24,28,.38); font-variant-numeric: tabular-nums;
   }
+  /* 正文默认就显示：dsh 那边是直接读回复，不是先看一行标题再点开 */
   .msg-body {
-    display: none;
-    font-size: 12px; line-height: 18px; color: var(--muted);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6;
+    overflow: hidden;
+    font-size: 12.5px; line-height: 18px; color: var(--fg);
     white-space: pre-wrap; word-break: break-word;
-    padding-left: 12px;
+    padding: 0 0 8px 12px;
   }
-  .msg.open .msg-body { display: block; max-height: 40vh; overflow-y: auto; padding-bottom: 8px; }
+  .msg.user .msg-body { -webkit-line-clamp: 3; color: var(--fg); }
+  .msg.tool .msg-body {
+    -webkit-line-clamp: 2; color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 16px;
+  }
+  /* 回复/提问没有标题：标题元素留着当弹性占位，时间才靠右 */
+  .msg.no-title .msg-title { display: block; -webkit-line-clamp: 1; min-height: 0; }
+  .msg.open .msg-body {
+    display: block; -webkit-line-clamp: unset; max-height: 42vh; overflow-y: auto;
+  }
+  /* 正文里的 Markdown 基本样式，和 dsh 的阅读效果对齐 */
+  .msg-body b { font-weight: 600; }
+  .msg-body em { font-style: italic; }
+  .msg-body .md-h { font-weight: 600; font-size: 13px; margin: 2px 0; }
+  .msg-body ul { margin: 2px 0 2px 14px; padding: 0; }
+  .msg-body li { list-style: disc; margin: 1px 0; }
+  .msg-body pre {
+    margin: 4px 0; padding: 6px 8px; border-radius: 4px; overflow-x: auto;
+    background: rgba(0,0,0,.045); font-size: 11px; line-height: 16px;
+  }
+  .msg-body pre code { background: transparent; padding: 0; font-size: 11px; }
+  body.dark .msg-body pre { background: rgba(255,255,255,.06); }
   .msg-body::-webkit-scrollbar-thumb { border-radius: 2px; }
   .msg-body code, .msg-body .path, .msg-body .url {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
@@ -280,6 +306,9 @@
   .round.tight { width: auto; height: 30px; padding: 0 2px; gap: 2px; }
   .round.tight .chev { width: 10px; height: 10px; opacity: .7; }
   .round.tight svg:first-child { width: 16px; height: 16px; }
+  /* 圆柱体是闭合图形，同样 16px 看起来更重：单独收小一号 */
+  #db svg:first-child { width: 13.5px; height: 13.5px; stroke-width: 1.6; }
+  #db .chev { width: 9px; height: 9px; }
   .round svg { width: 16px; height: 16px; display: block; }
   .round.primary svg { width: 16px; height: 16px; }
   #ring { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 12px;
@@ -409,6 +438,27 @@
     try { DshaFloat.postMessage(JSON.stringify({ method, params: params || {} })); } catch (_) {}
   };
   const el = id => document.getElementById(id);
+
+  /**
+   * 统一的点按绑定。
+   *
+   * 悬浮窗里出现过「按钮点不动、但输入框能打字」：原生命中按钮时输入框先失焦，
+   * 失焦会改窗口 flags，updateViewLayout 把还在按着的手势判成取消，
+   * 手指抬起后的 click 就不再派发。这里在 pointerup 上先触发一次，click 只兜底，
+   * 350ms 内去重，保证「按下去就有反应」。
+   */
+  function onTap(node, handler) {
+    if (!node) return;
+    let last = 0;
+    const fire = ev => {
+      const now = Date.now();
+      if (now - last < 350) return;
+      last = now;
+      handler(ev);
+    };
+    node.addEventListener('pointerup', fire);
+    node.addEventListener('click', fire);
+  }
   let state = { tasks: [], active: '', models: [], modelName: '' };
   let signature = '';
   let openId = '';
@@ -470,12 +520,53 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  /** 行内标记：反引号代码、粗体、斜体，外加 URL / 路径高亮。 */
+  function inlineMarkdown(escaped) {
+    return escaped
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/(https?:\/\/[^\s<]+)/g, '<span class="url">$1</span>')
+      .replace(/(^|[\s(])((?:\/[\w.\/-]{2,})|(?:[\w.-]+(?:\/[\w.-]+){2,}\/?))/g,
+        '$1<span class="path">$2</span>');
+  }
+
+  /**
+   * 正文按 dsh 那样渲染 Markdown：标题、列表、围栏代码块、行内标记。
+   * 只做这些：不做表格/图片，够读就行，也避免把 HTML 注入进来。
+   */
   function formatBody(text) {
-    let html = escapeHtml(text);
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/(https?:\/\/[^\s<]+)/g, '<span class="url">$1</span>');
-    html = html.replace(/(^|[\s(])((?:\/[\w.\/-]{2,})|(?:[\w.-]+(?:\/[\w.-]+){2,}\/?))/g,
-      '$1<span class="path">$2</span>');
+    const lines = String(text == null ? '' : text).split('\n');
+    let html = '';
+    let fence = false;
+    let list = false;
+    const closeList = () => { if (list) { html += '</ul>'; list = false; } };
+    for (const raw of lines) {
+      if (/^\s*```/.test(raw)) {
+        closeList();
+        html += fence ? '</code></pre>' : '<pre><code>';
+        fence = !fence;
+        continue;
+      }
+      if (fence) { html += escapeHtml(raw) + '\n'; continue; }
+      const line = escapeHtml(raw);
+      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      if (heading) {
+        closeList();
+        html += '<div class="md-h">' + inlineMarkdown(heading[1]) + '</div>';
+        continue;
+      }
+      const item = /^\s*(?:[-*+]|\d+\.)\s+(.*)$/.exec(line);
+      if (item) {
+        if (!list) { html += '<ul>'; list = true; }
+        html += '<li>' + inlineMarkdown(item[1]) + '</li>';
+        continue;
+      }
+      closeList();
+      html += inlineMarkdown(line) + '\n';
+    }
+    closeList();
+    if (fence) html += '</code></pre>';
     return html;
   }
 
@@ -684,7 +775,7 @@
           const b = document.createElement('button');
           b.className = 'tab' + (t.id === state.active ? ' active' : '');
           b.textContent = t.title || t.id.slice(-4);
-          b.addEventListener('click', e => {
+          onTap(b, e => {
             e.stopPropagation();
             state.active = t.id;
             signature = '';
@@ -710,10 +801,15 @@
           list.appendChild(empty);
         }
         msgs.forEach((m, i) => {
+          const kind = m.kind === 'tool' ? 'tool' : m.kind === 'user' ? 'user' : 'assistant';
           const item = document.createElement('div');
-          item.className = 'msg ' + (m.kind === 'tool' ? 'tool' : m.kind === 'user' ? 'user' : 'assistant');
+          item.className = 'msg ' + kind;
           item.dataset.id = task.id + ':' + i;
-          if (item.dataset.id === openId) item.classList.add('open');
+          const isLast = i === msgs.length - 1;
+          // 最新一条默认展开：问完就能直接读回复，不用先点开
+          if (item.dataset.id === openId || (isLast && !openId)) item.classList.add('open');
+          // 回复和提问没有「标题」，正文就是内容（dsh 也是这么排的）
+          if (kind !== 'tool') item.classList.add('no-title');
 
           const head = document.createElement('div');
           head.className = 'msg-head';
@@ -721,8 +817,9 @@
           badge.className = 'badge';
           const title = document.createElement('span');
           title.className = 'msg-title';
-          title.textContent = (m.title || (m.kind === 'tool' ? '工具调用' : '回复'))
-            + (m.count > 1 ? ' ×' + m.count : '');
+          if (kind === 'tool') {
+            title.textContent = (m.title || '工具调用') + (m.count > 1 ? ' ×' + m.count : '');
+          }
           const chev = document.createElement('span');
           chev.className = 'msg-chev';
           chev.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
@@ -733,9 +830,14 @@
 
           const body = document.createElement('div');
           body.className = 'msg-body';
-          body.innerHTML = formatBody(m.text || '');
+          const text = String(m.text || (kind === 'user' ? m.title : '') || '');
+          body.innerHTML = formatBody(text);
+          if (!text.trim()) {
+            body.style.display = 'none';
+            chev.style.visibility = 'hidden';
+          }
 
-          head.addEventListener('click', e => {
+          onTap(head, e => {
             e.stopPropagation();
             const wasOpen = item.classList.contains('open');
             document.querySelectorAll('#list .msg.open').forEach(n => n.classList.remove('open'));
@@ -764,6 +866,16 @@
           list.appendChild(working);
         }
         list.scrollTop = list.scrollHeight;
+        // 没被截断的行不需要展开箭头
+        requestAnimationFrame(() => {
+          list.querySelectorAll('.msg').forEach(node => {
+            if (node.classList.contains('open')) return;
+            const body = node.querySelector('.msg-body');
+            const chev = node.querySelector('.msg-chev');
+            if (!body || !chev || body.style.display === 'none') return;
+            chev.style.visibility = body.scrollHeight > body.clientHeight + 2 ? '' : 'hidden';
+          });
+        });
       }
 
       const confirm = v.confirm;
@@ -833,7 +945,7 @@
     refreshSendMode();
   }
 
-  el('send').addEventListener('click', e => {
+  onTap(el('send'), e => {
     e.stopPropagation();
     // 有内容就发（agent 正在跑时也是一句追加提问）；空着才是停止
     if (hasContent()) {
@@ -848,14 +960,14 @@
     post('refresh', {});
     showNotice('没有进行中的会话，请在 RCHA 里打开一个对话', 4000);
   });
-  el('mic').addEventListener('click', e => {
+  onTap(el('mic'), e => {
     e.stopPropagation();
     el('ask').classList.remove('listening');
     post('voice', {});
   });
-  el('pick').addEventListener('click', e => { e.stopPropagation(); post('pickImage', {}); });
+  onTap(el('pick'), e => { e.stopPropagation(); post('pickImage', {}); });
   Object.keys(blocks).forEach(k => {
-    el('sw-' + k).addEventListener('click', e => {
+    onTap(el('sw-' + k), e => {
       e.stopPropagation();
       const cls = blocks[k];
       const show = document.body.classList.contains(cls);
@@ -876,13 +988,13 @@
     document.documentElement.style.setProperty('--alpha', String(value / 100));
     post('alpha', { value });
   });
-  el('db').addEventListener('click', e => {
+  onTap(el('db'), e => {
     e.stopPropagation();
     const card = el('usage-card');
     card.hidden = !card.hidden;
   });
-  el('attach').addEventListener('click', e => { e.stopPropagation(); post('pickFile', {}); });
-  el('file-x').addEventListener('click', e => {
+  onTap(el('attach'), e => { e.stopPropagation(); post('pickFile', {}); });
+  onTap(el('file-x'), e => {
     e.stopPropagation();
     pendingFile = '';
     el('file-chip').hidden = true;
@@ -906,7 +1018,7 @@
       const b = document.createElement('button');
       b.textContent = m.name || m.id;
       if (m.name === state.modelName) b.className = 'on';
-      b.addEventListener('click', ev => {
+      onTap(b, ev => {
         ev.stopPropagation();
         menu.hidden = true;
         post('model', { session: (activeTask() || {}).id || lastSession || '', provider: m.provider, model: m.id });
@@ -916,7 +1028,7 @@
     return true;
   }
 
-  el('model').addEventListener('click', e => {
+  onTap(el('model'), e => {
     e.stopPropagation();
     const menu = el('model-menu');
     if (!menu.hidden) { menu.hidden = true; return; }
@@ -934,7 +1046,7 @@
     post('models', {});
   });
 
-  el('thumb-x').addEventListener('click', e => {
+  onTap(el('thumb-x'), e => {
     e.stopPropagation();
     pendingImage = '';
     pendingFile = '';
@@ -964,8 +1076,8 @@
     }
   });
 
-  el('allow').addEventListener('click', () => { post('activity', {}); post('confirm', { allow: true }); });
-  el('deny').addEventListener('click', () => { post('activity', {}); post('confirm', { allow: false }); });
+  onTap(el('allow'), () => { post('activity', {}); post('confirm', { allow: true }); });
+  onTap(el('deny'), () => { post('activity', {}); post('confirm', { allow: false }); });
 
   post('ready', {});
   // 宿主在页面加载前推的那一帧会丢：主动请它再读一次状态文件。

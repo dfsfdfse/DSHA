@@ -68,6 +68,8 @@ public final class FloatWindow {
   private static Context watchCtx;
   private static boolean watching;
   private static long stateStamp = -1L;
+  /** 延后执行的「窗口切回不可获焦」，见 setFocusable 的注释。 */
+  private static Runnable pendingBlur;
 
   /** true = 悬浮窗里跑的是 dsh 真实页面（输入栏/附件/语音全是原生的）。 */
   private static boolean realPage;
@@ -896,14 +898,49 @@ public final class FloatWindow {
     }
   }
 
-  /** 页面要输入时把窗口切成可获焦，否则键盘弹不出来；失焦后切回不抢焦点。 */
+  /**
+   * 页面要输入时把窗口切成可获焦，否则键盘弹不出来；失焦后切回不抢焦点。
+   *
+   * <p>两个坑必须避开，否则「按钮点不动」：
+   * <ol>
+   *   <li>按在按钮上的那一下会先让输入框失焦。失焦就改窗口 flags 时，
+   *       {@code updateViewLayout} 会重建输入通道，正在按着的手势被判为取消，
+   *       手指抬起后的 click 永远不来 —— 打字正常、按钮全哑。</li>
+   *   <li>flags 没变化时的重复 update 同样是白改一次窗口布局。</li>
+   * </ol>
+   * 所以：变成不可获焦延后到这一下点击走完；状态没变就什么都不做。
+   */
   private static void setFocusable(boolean on) {
-    if (params == null || wm == null || container == null) return;
-    if (on) params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-    else params.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-    try {
-      wm.updateViewLayout(container, params);
-    } catch (RuntimeException ignored) {
+    if (on) {
+      if (pendingBlur != null) {
+        main.removeCallbacks(pendingBlur);
+        pendingBlur = null;
+      }
+      applyFocusable(true);
+      return;
+    }
+    if (pendingBlur != null) return;
+    pendingBlur =
+        () -> {
+          pendingBlur = null;
+          applyFocusable(false);
+        };
+    main.postDelayed(pendingBlur, 240);
+  }
+
+  private static void applyFocusable(boolean on) {
+    if (params == null || wm == null || container == null) {
+      if (on && web != null) web.requestFocus();
+      return;
+    }
+    boolean focusable = (params.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0;
+    if (focusable != on) {
+      if (on) params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+      else params.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+      try {
+        wm.updateViewLayout(container, params);
+      } catch (RuntimeException ignored) {
+      }
     }
     if (web == null) return;
     if (on) {
@@ -1182,6 +1219,10 @@ public final class FloatWindow {
   }
 
   private static void dismiss() {
+    if (pendingBlur != null) {
+      main.removeCallbacks(pendingBlur);
+      pendingBlur = null;
+    }
     recording = false;
     try {
       if (recorder != null) {
