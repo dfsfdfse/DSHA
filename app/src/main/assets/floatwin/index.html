@@ -785,6 +785,58 @@
 
   body.fw #fwbody { display: flex; flex-direction: column; min-height: 0; }
   body.t2 #fwbody { flex: 1 1 auto; }
+  /* 会话管理面板：卡片内整窗覆盖，点标签上的「列表」或长按标签打开 */
+  body.fw #fwlist { color: var(--fw-sub); width: 16px; height: 24px; padding: 0; border: 0; background: transparent; display: grid; place-items: center; flex: none; }
+  body.fw #fwlist svg { width: 13px; height: 13px; display: block; }
+  body.fw #fwlist:active { color: var(--fw-text); }
+  #fwsheet {
+    display: flex; flex-direction: column; gap: 6px;
+    flex: 1 1 auto; min-height: 176px; max-height: 52vh;
+    padding: 2px 0 0; color: var(--fw-text);
+  }
+  #fwsheet[hidden] { display: none; }
+  /* 面板打开时顶栏/内容让位，避免半透明卡片里两套内容叠在一起 */
+  body.sheet-open #fwtop, body.sheet-open #fwbody, body.sheet-open #compose { display: none !important; }
+  #fwsheet .sh-head { display: flex; align-items: center; gap: 8px; flex: none; height: 24px; }
+  #fwsheet .sh-title { font-size: 13px; font-weight: 600; flex: 1 1 auto; min-width: 0; }
+  #fwsheet .sh-close {
+    flex: none; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
+    color: var(--fw-sub); display: grid; place-items: center;
+  }
+  #fwsheet .sh-close svg { width: 13px; height: 13px; display: block; }
+  #fwsheet .sh-search {
+    flex: none; height: 28px; padding: 0 8px; font-size: 12px; font-family: inherit;
+    color: var(--fw-text); background: var(--fw-field);
+    border: 0.5px solid var(--fw-line); border-radius: 4px; outline: none;
+  }
+  #fwsheet .sh-search::placeholder { color: var(--fw-sub); }
+  #fwsheet .sh-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #fwsheet .sh-list::-webkit-scrollbar { width: 0; }
+  #fwsheet .sh-row {
+    display: flex; align-items: center; gap: 8px; height: 34px;
+    padding: 0 2px; border-bottom: 0.5px solid var(--fw-line);
+  }
+  #fwsheet .sh-row:last-child { border-bottom: 0; }
+  #fwsheet .sh-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+  #fwsheet .sh-name { font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #fwsheet .sh-meta { font-size: 10px; line-height: 12px; color: var(--fw-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #fwsheet .sh-row.on .sh-name { font-weight: 600; color: var(--accent); }
+  #fwsheet .sh-dot { flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: fw-pulse 1.2s ease-in-out infinite; }
+  #fwsheet .sh-del {
+    flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 4px;
+    background: transparent; color: var(--fw-sub); display: grid; place-items: center;
+  }
+  #fwsheet .sh-del svg { width: 13px; height: 13px; display: block; }
+  #fwsheet .sh-row.confirm { background: rgba(229, 72, 77, .1); }
+  #fwsheet .sh-row.confirm .sh-del { color: var(--danger); width: auto; padding: 0 6px; font-size: 11px; font-family: inherit; }
+  #fwsheet .sh-new {
+    flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px;
+    border: 0.5px dashed var(--fw-line); border-radius: 4px;
+    background: transparent; color: var(--accent); font-size: 12px; font-family: inherit; text-align: left;
+  }
+  #fwsheet .sh-new svg { width: 12px; height: 12px; display: block; }
+  #fwsheet .sh-empty { padding: 18px 0; text-align: center; font-size: 12px; color: var(--fw-sub); }
+
   /* 目标 / 任务清单：各占一行，点开看全文与操作；mini 与 std 都有 */
   #goal-row, #todo-row { display: none; }
   body.fw #goal-row.has, body.fw #todo-row.has {
@@ -980,7 +1032,7 @@
 </head>
 <body>
 <div id="card">
-  <div id="fwtop"><div id="fwtabs"></div><button class="fwtab new" id="fwnew" title="新会话" aria-label="新会话"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2.5V13.5"/><path d="M2.5 8H13.5"/></svg></button><div id="fwstat"></div></div>
+  <div id="fwtop"><div id="fwtabs"></div><button class="fwtab new" id="fwnew" title="新会话" aria-label="新会话"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2.5V13.5"/><path d="M2.5 8H13.5"/></svg></button><button id="fwlist" title="会话管理" aria-label="会话管理"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 4.5H13"/><path d="M3 8H13"/><path d="M3 11.5H9"/></svg></button><div id="fwstat"></div></div>
   <div id="fwbody">
     <div id="goal-row"><span class="lab"></span><span class="clip"><span class="txt"></span></span><span class="gacts"></span></div>
     <div id="todo-row"><span class="lab"></span><span class="clip"><span class="txt"></span></span></div>
@@ -1056,6 +1108,15 @@
       <button class="gbtn" id="goal-toggle" type="button"></button>
       <button class="gbtn" id="goal-clear" type="button"></button>
     </span>
+  </div>
+  <div id="fwsheet" hidden>
+    <div class="sh-head">
+      <span class="sh-title">会话</span>
+      <button class="sh-close" id="fwsheet-close" type="button" aria-label="关闭"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 4L12 12M12 4L4 12"/></svg></button>
+    </div>
+    <input class="sh-search" id="fwsheet-q" type="search" placeholder="搜索标题" autocomplete="off">
+    <button class="sh-new" id="fwsheet-new" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8 2.5V13.5"/><path d="M2.5 8H13.5"/></svg><span>新建会话</span></button>
+    <div class="sh-list" id="fwsheet-list"></div>
   </div>
   <div id="compose">
     <textarea id="ask" rows="1" placeholder="发消息或创建任务, / 调用指令, @ 文件或对话" autocomplete="off"></textarea>
@@ -1489,24 +1550,7 @@
       refreshSendMode();
     },
     /** 宿主明确要求切到某个会话（语音「打开某某会话」/ 工具调用）。 */
-    selectSession: function (id) {
-      const want = typeof id === 'string' ? id : '';
-      userPicked = false;
-      selectedId = want;
-      tailSig = '';
-      thinkSig = '';
-      listSig2 = '';
-      el('tail').classList.remove('open');
-      el('think-row').classList.remove('open');
-      if (!pendingImage) el('ask').placeholder = placeholderNow();
-      if (want && want !== 'new'
-          && !(state.tasks || []).some(t => t.id === want)
-          && !askedCurrent.has(want)) {
-        askedCurrent.add(want);
-        post('thread', { session: want });
-      }
-      renderFw();
-    },
+    selectSession: function (id) { selectSessionTo(id); },
     onData: function (json) {
       let d = json;
       if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }
@@ -1523,6 +1567,8 @@
   let userPicked = false;
   /** 已经向插件要过历史的会话，避免每次推送都重复请求。 */
   const askedCurrent = new Set();
+  /** 选中的会话在数据里消失的起始时间（被删/读不到时回退到最近活跃）。 */
+  let staleSince = 0;
   /** 发了「新会话」的第一句后，等新会话出现在状态里再切过去。 */
   let newSince = null;
   const askedThread = new Set();
@@ -1574,6 +1620,30 @@
     if (!pendingImage && !document.body.classList.contains('voice-on')) {
       el('ask').placeholder = placeholderNow();
     }
+  }
+
+  /**
+   * 会话被删掉（或历史读不回来）时，别把界面钉在一个不存在的会话上：
+   * 宽限几秒后回退到最近活跃的会话，并把这个结果告诉宿主。
+   */
+  function dropStaleSelection() {
+    if (!selectedId || selectedId === 'new') { staleSince = 0; return; }
+    const known = (state.tasks || []).some(t => t.id === selectedId)
+      || (state.threads || []).some(t => t.id === selectedId);
+    if (known) { staleSince = 0; return; }
+    if (!staleSince) {
+      staleSince = Date.now();
+      // 没有新数据进来时也要有一次到点复查，否则会一直钉在不存在的会话上
+      setTimeout(() => { if (staleSince) renderFw(); }, 6200);
+      return;
+    }
+    if (Date.now() - staleSince < 6000) return;
+    staleSince = 0;
+    selectedId = '';
+    tailSig = '';
+    thinkSig = '';
+    listSig2 = '';
+    post('current', { session: '' });
   }
 
   function currentTask() {
@@ -1675,6 +1745,27 @@
     postDrag();
   }
 
+  /** 明确切到某个会话（'new' = 新会话草稿）：面板点行和宿主指令都走这里。 */
+  function selectSessionTo(id) {
+    const want = typeof id === 'string' ? id : '';
+    userPicked = false;
+    selectedId = want;
+    if (want) post('current', { session: want });
+    tailSig = '';
+    thinkSig = '';
+    listSig2 = '';
+    el('tail').classList.remove('open');
+    el('think-row').classList.remove('open');
+    if (!pendingImage) el('ask').placeholder = placeholderNow();
+    if (want && want !== 'new'
+        && !(state.tasks || []).some(t => t.id === want)
+        && !askedCurrent.has(want)) {
+      askedCurrent.add(want);
+      post('thread', { session: want });
+    }
+    renderFw();
+  }
+
   function selectTab(id) {
     if (!id) return;
     if (id !== 'new' && !state.tasks.some(t => t.id === id) && !askedThread.has(id)) {
@@ -1692,6 +1783,82 @@
     listSig2 = '';
     if (!pendingImage) el('ask').placeholder = placeholderNow();
     renderFw();
+  }
+
+  // ── 会话管理面板：切换 / 新建 / 删除 ──
+  let sheetConfirm = '';   // 正在二次确认删除的会话 id
+  let sheetSig = '';
+
+  function sheetRows() {
+    const q = (el('fwsheet-q').value || '').trim().toLowerCase();
+    const rows = [];
+    const seen = new Set();
+    for (const t of state.tasks || []) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      rows.push({ id: t.id, title: t.title || '', updated: t.updated || 0, live: !t.done });
+    }
+    for (const t of state.threads || []) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      rows.push({ id: t.id, title: t.title || '', updated: t.updated || 0, live: !!t.live });
+    }
+    rows.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    return q
+      ? rows.filter(r => String(r.title || '').toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
+      : rows;
+  }
+
+  function fmtWhen(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const pad = n => String(n).padStart(2, '0');
+    if (sameDay) return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  function renderSheet() {
+    const list = el('fwsheet-list');
+    const rows = sheetRows();
+    const cur = currentId();
+    const sig = rows.map(r => r.id + r.title + r.updated + (r.live ? 'L' : '')).join('|') + '#' + cur + '#' + sheetConfirm;
+    if (sig === sheetSig) return;
+    sheetSig = sig;
+    if (!rows.length) {
+      list.innerHTML = '<div class="sh-empty">' + (el('fwsheet-q').value ? '没有匹配的会话' : '还没有会话') + '</div>';
+      return;
+    }
+    list.innerHTML = rows.map(r => {
+      const confirm = sheetConfirm === r.id;
+      return '<div class="sh-row' + (r.id === cur ? ' on' : '') + (confirm ? ' confirm' : '') + '" data-id="' + escapeHtml(r.id) + '">'
+        + '<span class="sh-main"><span class="sh-name">' + escapeHtml(r.title || ('会话 ' + String(r.id).slice(-4))) + '</span>'
+        + '<span class="sh-meta">' + escapeHtml(fmtWhen(r.updated)) + (r.live ? ' · 进行中' : '') + '</span></span>'
+        + (r.live ? '<span class="sh-dot"></span>' : '')
+        + '<button class="sh-del" data-del="' + escapeHtml(r.id) + '" type="button" aria-label="删除">'
+        + (confirm ? '确认删除' : '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.28 3.89H14.72"/><path d="M5.42 3.89V2.48C5.42 2.11 5.75 1.78 6.45 1.78H9.55C10.25 1.78 10.58 2.11 10.58 2.48V3.89"/><path d="M2.57 3.89L3.19 13.29C3.22 13.55 3.34 13.79 3.53 13.96C3.72 14.13 3.97 14.23 4.23 14.22H11.77C12.03 14.23 12.28 14.13 12.47 13.96C12.66 13.79 12.78 13.55 12.81 13.29L13.43 3.89"/></svg>')
+        + '</button></div>';
+    }).join('');
+  }
+
+  function openSheet() {
+    sheetConfirm = '';
+    sheetSig = '';
+    el('fwsheet').hidden = false;
+    document.body.classList.add('sheet-open');
+    el('fwsheet-q').value = '';
+    renderSheet();
+    postFit();
+  }
+
+  function closeSheet() {
+    el('fwsheet').hidden = true;
+    document.body.classList.remove('sheet-open');
+    sheetConfirm = '';
+    sheetSig = '';
+    postFit();
   }
 
   /** 本轮正在做的那一步（思考 / 工具），没有就是 null。 */
@@ -1969,6 +2136,7 @@
   function renderFw() {
     if (!isFw()) return;
     adoptCurrent();
+    dropStaleSelection();
     if (newSince) {
       const fresh = (state.tasks || []).find(t => !newSince.has(t.id));
       if (fresh) {
@@ -1984,6 +2152,7 @@
     syncBusy(live);
     refreshSendMode();
     renderFwTabs();
+    if (!el('fwsheet').hidden) renderSheet();
     renderGoalRow(task);
     renderTodoRow(task);
     {
@@ -2576,6 +2745,51 @@
     renderList(currentTask());
   });
   onTap(el('fwnew'), e => { e.stopPropagation(); selectTab('new'); });
+  onTap(el('fwlist'), e => {
+    e.stopPropagation();
+    if (el('fwsheet').hidden) openSheet(); else closeSheet();
+  });
+  onTap(el('fwsheet-close'), e => { e.stopPropagation(); closeSheet(); });
+  onTap(el('fwsheet-new'), e => {
+    e.stopPropagation();
+    closeSheet();
+    selectTab('new');
+  });
+  el('fwsheet-q').addEventListener('input', () => { sheetSig = ''; renderSheet(); });
+  el('fwsheet-list').addEventListener('click', e => {
+    const row = e.target.closest && e.target.closest('.sh-row');
+    if (!row) return;
+    const id = row.dataset.id;
+    const del = e.target.closest && e.target.closest('.sh-del');
+    if (del) {
+      if (sheetConfirm !== id) { sheetConfirm = id; sheetSig = ''; renderSheet(); return; }
+      sheetConfirm = '';
+      sheetSig = '';
+      renderSheet();
+      post('deleteSession', { session: id });
+      showNotice('正在删除会话…', 3000, true);
+      return;
+    }
+    closeSheet();
+    selectSessionTo(id);
+  });
+  // 长按标签也能打开面板
+  (function () {
+    const tabs = el('fwtabs');
+    let timer = 0;
+    let moved = false;
+    tabs.addEventListener('pointerdown', e => {
+      moved = false;
+      const btn = e.target.closest && e.target.closest('.fwtab');
+      if (!btn) return;
+      timer = setTimeout(() => {
+        if (!moved) { openSheet(); timer = 0; }
+      }, 550);
+    });
+    tabs.addEventListener('pointermove', () => { moved = true; if (timer) { clearTimeout(timer); timer = 0; } });
+    tabs.addEventListener('pointerup', () => { if (timer) { clearTimeout(timer); timer = 0; } });
+    tabs.addEventListener('pointercancel', () => { if (timer) { clearTimeout(timer); timer = 0; } });
+  })();
   // 标签：横滑是滚动，不算点
   (function () {
     const tabs = el('fwtabs');

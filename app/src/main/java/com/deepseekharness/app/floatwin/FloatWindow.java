@@ -1772,6 +1772,15 @@ public final class FloatWindow {
                 false);
           return;
         }
+        case "deleteSession": {
+          Context ctx = web == null ? null : web.getContext();
+          String target = p.optString("session", "");
+          if (ctx != null && !target.isEmpty()) {
+            writeWant(ctx, "delete", target, "1");
+            if (target.equals(currentSession(ctx))) setCurrentSession(ctx, "");
+          }
+          return;
+        }
         case "current": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) setCurrentSession(ctx, p.optString("session", ""));

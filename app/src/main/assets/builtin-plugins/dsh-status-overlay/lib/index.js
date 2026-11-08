@@ -747,9 +747,21 @@ async function sessionAdmin(args) {
   return { ok: false, count: 0, text: `不认识的动作 ${action}；可用：${SESSION_ACTIONS.join(' / ')}` }
 }
 
+/** 注册诊断：注册结果写一行，工具没出现时能直接看出是哪一步失败。 */
+function pluginDiag(what, detail) {
+  try {
+    writeFileSync('/root/.dsh/float-plugin.log',
+      `${new Date().toISOString()} ${what} ${detail}\n`, { flag: 'a', mode: 0o600 })
+  } catch { /* 诊断写不进去不影响功能 */ }
+}
+
 /** 工具面：给模型一个稳定的入口，而不是让它自己拼 shell 或猜文件路径。 */
 function registerSessionTool(ctx) {
   const disposers = []
+  if (!ctx || !ctx.tools || typeof ctx.tools.register !== 'function') {
+    pluginDiag('tool', 'skip: ctx.tools 不可用')
+    return () => {}
+  }
   try {
     disposers.push(ctx.tools.register({
       name: 'rcha_session_admin',
@@ -767,7 +779,7 @@ function registerSessionTool(ctx) {
         additionalProperties: false,
         required: ['action'],
         properties: {
-          action: { type: 'string', required: true, enum: [...SESSION_ACTIONS], description: 'list | read | open | new | delete' },
+          action: { type: 'string', enum: [...SESSION_ACTIONS], description: 'list | read | open | new | delete' },
           session: { type: 'string', description: '会话 id（open/read/delete 必填）；uuid 尾部或标题片段也接受' },
           query: { type: 'string', description: 'list 时按标题或 id 前缀过滤' },
           limit: { type: 'integer', description: 'list 返回条数（默认 10）、read 返回轮数（默认 12）' },
@@ -780,9 +792,9 @@ function registerSessionTool(ctx) {
           additionalProperties: false,
           required: ['ok', 'count', 'text'],
           properties: {
-            ok: { type: 'boolean', required: true },
-            count: { type: 'integer', required: true },
-            text: { type: 'string', required: true },
+            ok: { type: 'boolean' },
+            count: { type: 'integer' },
+            text: { type: 'string' },
           },
         },
         render: (_args, value) => [{ type: 'text', text: value.text }],
@@ -791,7 +803,10 @@ function registerSessionTool(ctx) {
         return sessionAdmin(args)
       },
     }))
-  } catch { /* 工具注册失败不影响悬浮窗本身 */ }
+    pluginDiag('tool', 'ok rcha_session_admin')
+  } catch (error) {
+    pluginDiag('tool', 'fail ' + String(error?.message || error).slice(0, 200))
+  }
   return () => {
     for (const dispose of disposers) {
       try { dispose() } catch { }
@@ -1161,8 +1176,11 @@ export function apply(ctx) {
     void refreshModels()
     return () => { llmApi = undefined }
   })
-  ctx.inject(['tools'], scoped => registerSessionTool(scoped))
-  ctx.inject(['skills'], scoped => registerSessionSkill(scoped))
+  // 工具/技能优先直接挂在插件 ctx 上：inject 依赖服务名匹配，挂不上的话就会「静默没有工具」
+  registerSessionTool(ctx)
+  registerSessionSkill(ctx)
+  if (!ctx.tools) ctx.inject(['tools'], scoped => (registerSessionTool(scoped), () => {}))
+  if (!ctx.skills) ctx.inject(['skills'], scoped => (registerSessionSkill(scoped), () => {}))
   ctx.inject(['sessionQuery'], scoped => {
     queryApi = scoped.sessionQuery
     void refreshThreads()
@@ -1612,6 +1630,13 @@ function startInbox(ctx) {
         } catch (error) {
           setNotice('切换权限失败：' + String(error?.message || error).slice(0, 70))
         }
+        publishFloat('')
+        return
+      }
+      if (want === 'delete') {
+        // 悬浮窗会话面板里的删除：页面已经点过两次确认，这里只做执行与回执
+        const result = await sessionAdmin({ action: 'delete', session: String(msg.session || ''), confirm: true })
+        setNotice(result.text)
         publishFloat('')
         return
       }
