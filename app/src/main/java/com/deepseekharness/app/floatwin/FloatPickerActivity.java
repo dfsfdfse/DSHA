@@ -15,6 +15,7 @@ import android.os.Bundle;
 public final class FloatPickerActivity extends Activity {
   private static final int REQUEST = 41;
   static final String EXTRA_TYPE = "picker_type";
+  static final String EXTRA_FILE_MODE = "picker_file_mode";
 
   @Override
   protected void onCreate(Bundle state) {
@@ -35,7 +36,11 @@ public final class FloatPickerActivity extends Activity {
   @Override
   protected void onActivityResult(int request, int result, Intent data) {
     Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
-    if (uri != null && getIntent() != null && getIntent().hasExtra(EXTRA_TYPE)) {
+    boolean fileMode =
+        getIntent() != null && getIntent().getBooleanExtra(EXTRA_FILE_MODE, false);
+    if (uri != null && fileMode) {
+      FloatWindow.deliverPickedFileAttachment(uri);
+    } else if (uri != null && getIntent() != null && getIntent().hasExtra(EXTRA_TYPE)) {
       FloatWindow.deliverPickedImage(uri);
     } else {
       FloatWindow.deliverPickedFile(uri);

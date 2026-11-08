@@ -76,6 +76,7 @@ public final class FloatWindow {
   private static String lastWebUrl = "";
   private static android.webkit.ValueCallback<android.net.Uri[]> pendingFileChooser;
   private static boolean pendingImage;
+  private static boolean pendingFile;
   /** 录音状态：true=正在录；用 dsh 的 speechToText 转写，不走系统识别。 */
   private static boolean recording;
   private static android.media.AudioRecord recorder;
@@ -206,14 +207,8 @@ public final class FloatWindow {
             prefs(app).edit().putString("floatwin_blocks", hiddenBlocks).apply();
             evaluate("window.dshFloat&&window.dshFloat.applyConfig(" + JSONObject.quote(hiddenBlocks) + ")");
           }
-          File state = guestFile(app, GUEST_STATE);
-          String json = state != null && state.isFile() ? readText(state) : null;
-          if (json != null && !json.isEmpty() && !json.contains("\"clear\"")) {
-            pendingPayload = json;
-            update(json);
-          } else if (web != null) {
-            web.evaluateJavascript("window.dshFloat&&window.dshFloat.onData({tasks:[]})", null);
-          }
+          pullState(app);
+          if (web != null) pushPayload();
         });
   }
 
@@ -259,9 +254,25 @@ public final class FloatWindow {
     feed(ctx, json);
   }
 
+  /**
+   * 重新读一次容器里的状态文件，作为下一次推送的载荷。
+   *
+   * 打开窗口时页面还没加载完，那一帧推送会丢；所以页面加载完会主动发一次 refresh，
+   * 这里必须真的去读盘，而不是沿用可能与现场已经脱节的旧载荷。
+   */
+  private static void pullState(Context ctx) {
+    File state = guestFile(ctx, GUEST_STATE);
+    String json = state != null && state.isFile() ? readText(state) : null;
+    if (json != null && !json.isEmpty() && !json.contains("\"clear\"")) {
+      pendingPayload = json;
+      stateStamp = state.lastModified() * 1000L + Math.min(state.length(), 999);
+    } else {
+      pendingPayload = "{\"tasks\":[]}";
+    }
+  }
+
   /** 把插件写来的整份状态交给页面（窗口没开就开）。 */
-  private static void feed(Context ctx, String json) {
-    if (realPage) return;
+  private static void feed(Context ctx, String json) {    if (realPage) return;
     if (web == null) {
       show(ctx, json, null);
       return;
@@ -271,7 +282,8 @@ public final class FloatWindow {
   }
 
   /** 写入一条要发给 agent 的消息，插件轮询该文件并投递到会话。 */
-  private static void writeInbox(Context ctx, String session, String text, String image) {
+  private static void writeInbox(
+      Context ctx, String session, String text, String image, String file, boolean cancel) {
     try {
       File inbox = guestFile(ctx, GUEST_INBOX);
       if (inbox == null) return;
@@ -280,7 +292,9 @@ public final class FloatWindow {
               .put("seq", System.currentTimeMillis())
               .put("session", session == null ? "" : session)
               .put("text", text == null ? "" : text)
-              .put("image", image == null ? "" : image);
+              .put("image", image == null ? "" : image)
+              .put("file", file == null ? "" : file)
+              .put("cancel", cancel);
       File dir = inbox.getParentFile();
       if (dir != null) dir.mkdirs();
       File tmp = new File(inbox.getPath() + ".tmp");
@@ -294,6 +308,55 @@ public final class FloatWindow {
           out.write(message.toString().getBytes(StandardCharsets.UTF_8));
         }
       }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** 让插件补一次数据（目前只有模型清单）：宿主不解释内容，只转达「请刷新」。 */
+  private static void writeWant(Context ctx, String want) {
+    try {
+      File inbox = guestFile(ctx, GUEST_INBOX);
+      if (inbox == null || want == null || want.isEmpty()) return;
+      File dir = inbox.getParentFile();
+      if (dir != null) dir.mkdirs();
+      JSONObject message =
+          new JSONObject().put("seq", System.currentTimeMillis()).put("want", want);
+      File tmp = new File(inbox.getPath() + ".tmp");
+      try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+        out.write(message.toString().getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        out.getFD().sync();
+      }
+      if (!tmp.renameTo(inbox)) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(inbox)) {
+          out.write(message.toString().getBytes(StandardCharsets.UTF_8));
+        }
+      }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** 切换会话模型：写一条带 provider/model 的收件箱消息。 */
+  private static void writeModel(Context ctx, String session, String provider, String model) {
+    try {
+      File inbox = guestFile(ctx, GUEST_INBOX);
+      if (inbox == null || model.isEmpty()) return;
+      File dir = inbox.getParentFile();
+      if (dir != null) dir.mkdirs();
+      JSONObject message =
+          new JSONObject()
+              .put("seq", System.currentTimeMillis())
+              .put("session", session == null ? "" : session)
+              .put("text", "")
+              .put("image", "")
+              .put("cancel", false)
+              .put("provider", provider == null ? "" : provider)
+              .put("model", model);
+      File tmp = new File(inbox.getPath() + ".tmp");
+      try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+        out.write(message.toString().getBytes(StandardCharsets.UTF_8));
+      }
+      if (!tmp.renameTo(inbox)) tmp.renameTo(inbox);
     } catch (Throwable ignored) {
     }
   }
@@ -527,14 +590,18 @@ public final class FloatWindow {
 
   private static android.widget.TextView overlayButton(Context app, String label) {
     android.widget.TextView view = new android.widget.TextView(app);
+    boolean dark =
+        (app.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+            == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     view.setText(label);
     view.setTextSize(13);
-    view.setTextColor(Color.WHITE);
+    view.setTextColor(dark ? 0xF2FFFFFF : 0xF217181C);
     view.setGravity(Gravity.CENTER);
     android.graphics.drawable.GradientDrawable bg =
         new android.graphics.drawable.GradientDrawable();
-    bg.setColor(0x66000000);
-    bg.setCornerRadius(dp(app, 13));
+    bg.setColor(dark ? 0x33FFFFFF : 0x1A000000);
+    bg.setCornerRadius(dp(app, 6));
     view.setBackground(bg);
     return view;
   }
@@ -686,6 +753,19 @@ public final class FloatWindow {
         case "expanded":
         case "activity":
           return;
+        case "refresh": {
+          // 页面刚加载 / 用户点了发送但手上没有会话：重读状态文件后再推一帧。
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) pullState(ctx);
+          pushPayload();
+          return;
+        }
+        case "models": {
+          // 模型清单还没拿到：让插件拉一次再回写状态，别让菜单点了没反应。
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) writeWant(ctx, "models");
+          return;
+        }
         case "resize":
           if (container != null && wm != null && params != null) {
             updateLayout(container);
@@ -700,12 +780,28 @@ public final class FloatWindow {
           if (container != null) container.setAlpha(alpha / 100f);
           return;
         }
+        case "model": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null)
+            writeModel(
+                ctx, p.optString("session", ""), p.optString("provider", ""), p.optString("model", ""));
+          return;
+        }
+        case "cancel": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) writeInbox(ctx, p.optString("session", ""), "", "", "", true);
+          return;
+        }
         case "voice": {
           startVoice();
           return;
         }
         case "pickImage": {
           pickImage();
+          return;
+        }
+        case "pickFile": {
+          pickFile();
           return;
         }
         case "send": {
@@ -715,7 +811,9 @@ public final class FloatWindow {
                 ctx,
                 p.optString("session", ""),
                 p.optString("text", ""),
-                p.optString("image", ""));
+                p.optString("image", ""),
+                p.optString("file", ""),
+                false);
           return;
         }
         case "focus": {
@@ -772,6 +870,10 @@ public final class FloatWindow {
       if (ctx != null) {
         int alpha = Math.max(20, Math.min(100, prefs(ctx).getInt("floatwin_alpha", 60)));
         payload.put("alpha", alpha);
+        boolean dark =
+            (ctx.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        payload.put("theme", dark ? "dark" : "light");
       }
       return payload.toString();
     } catch (Exception ignored) {
@@ -966,6 +1068,52 @@ public final class FloatWindow {
       ctx.startActivity(intent);
     } catch (Throwable error) {
       pendingImage = false;
+    }
+  }
+
+  /** 选任意文件，写进容器后交给页面当附件。 */
+  private static void pickFile() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) return;
+    pendingFile = true;
+    try {
+      android.content.Intent intent =
+          new android.content.Intent(ctx, FloatPickerActivity.class)
+              .putExtra(FloatPickerActivity.EXTRA_TYPE, "*/*")
+              .putExtra(FloatPickerActivity.EXTRA_FILE_MODE, true)
+              .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Throwable error) {
+      pendingFile = false;
+    }
+  }
+
+  static void deliverPickedFileAttachment(android.net.Uri uri) {
+    pendingFile = false;
+    Context ctx = web == null ? null : web.getContext();
+    if (uri == null || ctx == null) return;
+    try {
+      File attach = guestFile(ctx, "float-attach");
+      if (attach == null) return;
+      if (!attach.isDirectory() && !attach.mkdirs()) return;
+      String name = "file-" + System.currentTimeMillis();
+      String last = uri.getLastPathSegment();
+      if (last != null && last.contains(".")) name += last.substring(last.lastIndexOf('.'));
+      File target = new File(attach, name);
+      try (java.io.InputStream in = ctx.getContentResolver().openInputStream(uri);
+          java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+        if (in == null) return;
+        byte[] buffer = new byte[16384];
+        int n;
+        while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+      }
+      evaluate(
+          "window.dshFloat&&window.dshFloat.onFile("
+              + JSONObject.quote("/root/.dsh/float-attach/" + target.getName())
+              + ","
+              + JSONObject.quote(target.getName())
+              + ")");
+    } catch (Throwable ignored) {
     }
   }
 

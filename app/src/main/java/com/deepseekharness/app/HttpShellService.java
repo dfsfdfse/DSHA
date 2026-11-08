@@ -1798,6 +1798,25 @@ public final class HttpShellService {
         alphaValue = alphaText.isEmpty() ? 0 : Integer.parseInt(alphaText.trim());
       } catch (NumberFormatException ignored) {
       }
+      if ("snapshot".equals(action)) {
+        // 离屏渲染：应用自己画 PNG，不触发任何系统确认，供 UI 迭代用。
+        String html = getParam(q, "html", "");
+        String htmlPath = getParam(q, "path", "/root/.dsh/ui-preview.html");
+        String out = getParam(q, "out", "/sdcard/Download/floatwin-snapshot.png");
+        int sw = intParam(q, "w", 380);
+        int sh = intParam(q, "h", 520);
+        java.io.File outFile = new java.io.File(out);
+        final String replyOut = out;
+        com.deepseekharness.app.floatwin.FloatSnapshot.render(
+            ctx,
+            html,
+            htmlPath,
+            sw,
+            sh,
+            outFile,
+            ok -> android.util.Log.i("DSHA", "float-snapshot " + (ok ? "ok " : "fail ") + replyOut));
+        return "OK snapshot " + out;
+      }
       if ("chat".equals(panel)) {
         if (!OverlayController.permitted(ctx)) return "NO_PERMISSION";
         com.deepseekharness.app.floatwin.FloatWindow.showCustom(

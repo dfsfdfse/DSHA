@@ -230,7 +230,7 @@ async function sendFloat(key, b) {
   for (const [k, s] of state) {
     if (!s || !(s.messages || []).length) continue
     tasks.push({
-      id: k,
+      id: fullIdOf(k) || k,
       title: titles.get(k) || '',
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
@@ -243,8 +243,10 @@ async function sendFloat(key, b) {
   const payload = JSON.stringify({
     title: tasks.length ? tasks[0].title : '',
     tasks: tasks.slice(0, 6),
-    active: key,
+    active: fullIdOf(key) || key,
     count: tasks.length,
+    models: modelCatalog.slice(0, 16),
+    notice,
   })
   writeState(payload)
   // 只写文件：HTTP 端点会去创建窗口，导致 dsh 每回复一次就弹窗。
@@ -253,6 +255,75 @@ async function sendFloat(key, b) {
 
 let projections
 let agentsApi
+let llmApi
+let modelCatalog = []
+/** 上一次提示文案：投递失败之类的原因要送到页面，不能点了没反应。 */
+let notice = ''
+/** 模型清单拉取节流（拿不到时别每帧都问一遍）。 */
+let modelTryAt = 0
+
+/** 会话的完整 id。状态文件里给页面用的必须是完整 id ——
+ *  短 key 只是插件内部的桶名，拿它去 agents.get() 永远查不到（发送就"消失"了）。 */
+function fullIdOf(key) {
+  try {
+    const s = state.get(key)
+    const raw = s?.session?.id ?? s?.session?.sessionId ?? ''
+    const id = String(raw)
+    return id && id !== 'undefined' ? id : ''
+  } catch {
+    return ''
+  }
+}
+
+/** 按「完整 id → 短 key → 最近活跃会话」的顺序找出真正可投递的 agent。
+ *  页面可能拿着旧 id、空 id，或者还没收到状态；这三种都要能落到一个活会话上。 */
+function liveAgent(agents, wanted) {
+  if (!agents) return undefined
+  const w = String(wanted || '').trim()
+  if (w) {
+    try {
+      const direct = agents.get(w)
+      if (direct) return direct
+    } catch { }
+    for (const [k, s] of state) {
+      const full = fullIdOf(k)
+      if (!full) continue
+      if (k !== w && full !== w && !full.endsWith(w)) continue
+      try {
+        const hit = agents.get(full)
+        if (hit) return hit
+      } catch { }
+    }
+  }
+  let best
+  for (const [, s] of state) {
+    if (!s?.session) continue
+    if (!best || (s.updated || 0) > (best.updated || 0)) best = s
+  }
+  if (!best) return undefined
+  try {
+    const id = String(best.session.id ?? best.session.sessionId ?? '')
+    return id ? agents.get(id) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** 把一条提示写进状态并立刻推给页面（7 秒后页面自己收起来）。 */
+function setNotice(text) {
+  const next = String(text || '')
+  if (next === notice) return
+  notice = next
+  try { publishFloat('') } catch { }
+}
+
+/** 清单还是空的就再问一次 llm 服务；成功后重发状态，菜单才有内容。 */
+function maybeRefreshModels() {
+  if (modelCatalog.length || !llmApi) return
+  if (Date.now() < modelTryAt) return
+  modelTryAt = Date.now() + 20000
+  void refreshModels().then(() => { try { publishFloat('') } catch { } })
+}
 
 /** 上下文用量：token-meter 的投影（已用/窗口 + 系统提示词/工具/消息三段）。 */
 function usageOf(session) {
@@ -272,6 +343,24 @@ function usageOf(session) {
     }
   } catch {
     return null
+  }
+}
+
+/** 拉一次可用模型清单，供悬浮窗的模型菜单用。 */
+async function refreshModels() {
+  try {
+    if (!llmApi) return
+    const providers = await llmApi.listProviders()
+    const out = []
+    for (const provider of providers.slice(0, 4)) {
+      const models = await llmApi.listModels(provider.id)
+      for (const model of models.slice(0, 30)) {
+        out.push({ provider: provider.id, id: model.id, name: model.name || model.id })
+      }
+    }
+    modelCatalog = out
+  } catch {
+    modelCatalog = []
   }
 }
 
@@ -300,11 +389,12 @@ function writeState(payload) {
 
 /** 不依赖某个会话的一次状态发布：dsh 启动时就该让悬浮窗出现。 */
 function publishFloat(activeKey) {
+  maybeRefreshModels()
   const tasks = []
   for (const [k, s] of state) {
     if (!s || !(s.messages || []).length) continue
     tasks.push({
-      id: k,
+      id: fullIdOf(k) || k,
       title: titles.get(k) || '',
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
@@ -317,8 +407,10 @@ function publishFloat(activeKey) {
   writeState(JSON.stringify({
     title: tasks.length ? tasks[0].title : '',
     tasks: tasks.slice(0, 6),
-    active: activeKey || (tasks.length ? tasks[0].id : ''),
+    active: fullIdOf(activeKey) || activeKey || (tasks.length ? tasks[0].id : ''),
     count: tasks.length,
+    models: modelCatalog.slice(0, 16),
+    notice,
   }))
 }
 
@@ -383,6 +475,11 @@ export function apply(ctx) {
     agentsApi = scoped.agents
     return () => { agentsApi = undefined }
   })
+  ctx.inject(['llm'], scoped => {
+    llmApi = scoped.llm
+    void refreshModels()
+    return () => { llmApi = undefined }
+  })
   const onEvent = (session, event) => {
     try {
       if (!bridgeToken()) return
@@ -422,6 +519,26 @@ export function apply(ctx) {
           b.detail = ''
           scheduleFloat(key, b)
         }
+        return
+      }
+
+      if (type === 'user/message') {
+        const b = bucket(key)
+        b.session = session
+        const parts = (data?.message && data.message.content) || data?.content || []
+        const text = Array.isArray(parts)
+          ? parts.filter(p => p && p.type === 'text').map(p => p.text).join(' ').trim()
+          : ''
+        if (!text) return
+        b.updated = Date.now()
+        b.messages.push({
+          kind: 'user',
+          title: text.slice(0, 120),
+          text: text.slice(0, 4000),
+          at: Date.now(),
+        })
+        if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
+        scheduleFloat(key, b)
         return
       }
 
@@ -541,10 +658,16 @@ function startVoice(ctx) {
   }
   const timer = setInterval(async () => {
     try {
-      if (!stt) return
       const message = JSON.parse(readFileSync(VOICE_IN, 'utf8'))
       const seq = Number(message?.seq)
       if (!Number.isFinite(seq) || seq <= lastSeq || typeof message.audio !== 'string') return
+      if (!stt) {
+        // 服务确实没装/没启用才报错；只是还没注入完就再等等
+        if (ctx.get && ctx.get('speechToText')) return
+        lastSeq = seq
+        write({ seq, error: '语音转写未启用（需要 speech-to-text 插件）' })
+        return
+      }
       lastSeq = seq
       const audio = Buffer.from(message.audio, 'base64')
       try {
@@ -589,15 +712,47 @@ function startInbox(ctx) {
       const raw = readFileSync(FLOAT_INBOX, 'utf8')
       const msg = JSON.parse(raw)
       const seq = Number(msg?.seq)
+      if (!Number.isFinite(seq) || seq <= lastSeq) return
       const text = typeof msg?.text === 'string' ? msg.text : ''
-      if (!Number.isFinite(seq) || seq <= lastSeq || !text.trim()) return
+      const image = typeof msg?.image === 'string' ? msg.image : ''
+      const file = typeof msg?.file === 'string' ? msg.file : ''
+      const cancel = msg?.cancel === true
+      const hasModel = typeof msg?.model === 'string' && !!msg.model
+      const want = typeof msg?.want === 'string' ? msg.want : ''
       lastSeq = seq
-      const agent = agents.get(String(msg.session || ''))
-      if (!agent) return
+      // 宿主只是要一份数据（目前是模型清单）：不算用户消息
+      if (want === 'models') {
+        await refreshModels()
+        publishFloat('')
+        return
+      }
+      if (!text.trim() && !image && !file && !cancel && !hasModel) return
+      // 页面手上的 id 可能是旧的、短的、甚至空的：按完整 id → 短 key → 最近活跃会话兜底
+      const agent = liveAgent(agents, msg.session)
+      if (!agent) {
+        setNotice('没有可投递的会话：请先在 RCHA 里打开一个对话')
+        return
+      }
+      if (hasModel) {
+        try {
+          const selection = { provider: String(msg.provider || ''), model: String(msg.model) }
+          if (typeof agents.selectForNextRequest === 'function') {
+            agents.selectForNextRequest(agent, selection)
+          }
+          notice = ''
+        } catch {
+          setNotice('切换模型失败：' + String(msg.model))
+        }
+        publishFloat('')
+        return
+      }
+      if (cancel) {
+        try { agent.cancel({ kind: 'user' }, { keepInbox: true }) } catch { }
+        return
+      }
       const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
       const parts = []
       if (text.trim()) parts.push({ type: 'text', text: text.slice(0, 8000) })
-      const image = typeof msg.image === 'string' ? msg.image : ''
       if (image && attachments) {
         try {
           const bytes = readFileSync(image)
@@ -616,9 +771,25 @@ function startInbox(ctx) {
           })
         } catch { /* 图片读不到就只发文字 */ }
       }
+      if (file && attachments) {
+        try {
+          const bytes = readFileSync(file)
+          const ref = await attachments.admitEncodedFile({
+            data: bytes.toString('base64'),
+            name: file.split('/').pop(),
+          })
+          parts.push({ type: 'file', attachment: ref })
+        } catch { /* 文件读不到就只发文字 */ }
+      }
       if (!parts.length) return
       const content = attachments ? await attachments.admitPromptContent(parts) : parts
-      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
+      try {
+        agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
+        // 送达就把上一次的失败提示撤掉（页面 7 秒后本来也会自己收）
+        if (notice) setNotice('')
+      } catch (error) {
+        setNotice('发送失败：' + String(error?.message || error).slice(0, 60))
+      }
     } catch { /* 投递失败不能影响 agent 主链路 */ }
   }
   const timer = setInterval(() => { void drain() }, 400)
