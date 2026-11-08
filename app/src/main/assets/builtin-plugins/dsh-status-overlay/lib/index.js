@@ -229,15 +229,22 @@ async function sendFloat(key, b) {
   const tasks = []
   for (const [k, s] of state) {
     if (!s || !(s.messages || []).length) continue
+    const usage = usageOf(s.session)
     tasks.push({
       id: fullIdOf(k) || k,
       title: titles.get(k) || '',
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
-      usage: usageOf(s.session),
+      usage,
       model: modelOf(k),
       since: s.turnStart || 0,
+      stats: {
+        turns: s.turns || 0,
+        steps: s.steps || 0,
+        total: usage?.total || 0,
+        cacheHit: usage?.cacheHit ?? null,
+      },
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -330,17 +337,32 @@ function maybeRefreshModels() {
 function usageOf(session) {
   if (!projections || !session) return null
   try {
-    const snap = projections.snapshot(session, ['contextPressure', 'contextBreakdown'])
+    const snap = projections.snapshot(session, ['contextPressure', 'contextBreakdown', 'tokenUsage'])
     const pressure = snap?.values?.contextPressure
     const breakdown = snap?.values?.contextBreakdown
+    const totals = snap?.values?.tokenUsage?.totals
     const used = pressure?.projectedTokens ?? pressure?.pressureTokens
-    if (!Number.isFinite(used) || !Number.isFinite(pressure?.contextWindow)) return null
+    // 累计用量与缓存命中率：dsh 底部那行「277M tok · 缓存命中 99.7%」
+    let total = 0
+    let cacheHit = null
+    if (totals) {
+      const read = Number(totals.cacheReadTokens) || 0
+      total = (Number(totals.uncachedInputTokens) || 0) + (Number(totals.outputTokens) || 0)
+        + read + (Number(totals.cacheWriteTokens) || 0)
+      const input = (Number(totals.uncachedInputTokens) || 0) + read
+      if (input > 0) cacheHit = Math.round((read / input) * 1000) / 10
+    }
+    if (!Number.isFinite(used) || !Number.isFinite(pressure?.contextWindow)) {
+      return total ? { total, cacheHit } : null
+    }
     return {
       used,
       window: pressure.contextWindow,
       system: Number(breakdown?.systemTokens) || 0,
       tools: Number(breakdown?.toolsTokens) || 0,
       messages: Number(breakdown?.messageTokens) || 0,
+      total,
+      cacheHit,
     }
   } catch {
     return null
@@ -394,15 +416,22 @@ function publishFloat(activeKey) {
   const tasks = []
   for (const [k, s] of state) {
     if (!s || !(s.messages || []).length) continue
+    const usage = usageOf(s.session)
     tasks.push({
       id: fullIdOf(k) || k,
       title: titles.get(k) || '',
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
-      usage: usageOf(s.session),
+      usage,
       model: modelOf(k),
       since: s.turnStart || 0,
+      stats: {
+        turns: s.turns || 0,
+        steps: s.steps || 0,
+        total: usage?.total || 0,
+        cacheHit: usage?.cacheHit ?? null,
+      },
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -591,6 +620,7 @@ export function apply(ctx) {
         if (b.thinkAcc) {
           pushThink(b)
         }
+        b.steps = (b.steps || 0) + 1
         b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
@@ -616,6 +646,7 @@ export function apply(ctx) {
         b.think = ''
         b.thinkAcc = ''
         b.turnStart = Date.now()
+        b.turns = (b.turns || 0) + 1
         b.done = false
         b.updated = Date.now()
         b.status = '正在处理…'

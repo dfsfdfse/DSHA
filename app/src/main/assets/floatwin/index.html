@@ -352,6 +352,13 @@
   }
   #notice[hidden] { display: none; }
   #notice.ok { background: rgba(63, 125, 251, .12); color: #3f7dfb; }
+  /* 底栏统计：N 轮 M 步 ｜ 累计用量 · 缓存命中（对齐 dsh 的 stats 那行） */
+  #stats {
+    flex: 0 0 auto; display: flex; gap: 10px; justify-content: space-between;
+    padding: 6px 2px 0; font-size: 10px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  #stats[hidden] { display: none; }
   #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
@@ -432,6 +439,10 @@
       <svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
     </button>
     </div>
+  </div>
+  <div id="stats" hidden>
+    <span id="st-left"></span>
+    <span id="st-right"></span>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
@@ -790,6 +801,19 @@
       if (task.model && el('model')) {
         el('model').querySelector('b').textContent = String(task.model).slice(0, 14);
       }
+      const st = task.stats;
+      const stats = el('stats');
+      const hideStats = document.body.classList.contains('hide-usage');
+      if (st && !hideStats && (st.turns || st.steps || st.total)) {
+        el('st-left').textContent = (st.turns || 0) + ' 轮 ' + (st.steps || 0) + ' 步';
+        const parts = [];
+        if (st.total) parts.push(shortK(st.total) + ' tok');
+        if (st.cacheHit != null) parts.push('缓存命中 ' + st.cacheHit + '%');
+        el('st-right').textContent = parts.join(' · ');
+        stats.hidden = false;
+      } else {
+        stats.hidden = true;
+      }
       const count = state.tasks.length;
       el('count').textContent = count > 1 ? count + ' 个任务' : '';
       el('count').hidden = count <= 1;
@@ -1053,7 +1077,9 @@
     const box = el('notice');
     if (!menu || !compose) return;
     const extra = box && !box.hidden ? box.offsetHeight + 8 : 0;
-    menu.style.bottom = (compose.offsetHeight + extra + 10) + 'px';
+    const stats = el('stats');
+    const foot = stats && !stats.hidden ? stats.offsetHeight : 0;
+    menu.style.bottom = (compose.offsetHeight + extra + foot + 10) + 'px';
   }
 
   function buildModelMenu() {
