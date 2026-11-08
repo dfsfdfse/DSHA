@@ -232,6 +232,7 @@ async function sendFloat(key, b) {
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
+      usage: usageOf(s.session),
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -249,6 +250,29 @@ async function sendFloat(key, b) {
     })
   } catch {
     // 悬浮窗不是关键路径，失败静默
+  }
+}
+
+let projections
+
+/** 上下文用量：token-meter 的投影（已用/窗口 + 系统提示词/工具/消息三段）。 */
+function usageOf(session) {
+  if (!projections || !session) return null
+  try {
+    const snap = projections.snapshot(session, ['contextPressure', 'contextBreakdown'])
+    const pressure = snap?.values?.contextPressure
+    const breakdown = snap?.values?.contextBreakdown
+    const used = pressure?.projectedTokens ?? pressure?.pressureTokens
+    if (!Number.isFinite(used) || !Number.isFinite(pressure?.contextWindow)) return null
+    return {
+      used,
+      window: pressure.contextWindow,
+      system: Number(breakdown?.systemTokens) || 0,
+      tools: Number(breakdown?.toolsTokens) || 0,
+      messages: Number(breakdown?.messageTokens) || 0,
+    }
+  } catch {
+    return null
   }
 }
 
@@ -272,6 +296,7 @@ function publishFloat(activeKey) {
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
+      usage: usageOf(s.session),
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -335,6 +360,10 @@ export function apply(ctx) {
   }, 300)
   if (typeof started?.unref === 'function') started.unref()
   startInbox(ctx)
+  ctx.inject(['sessionProjections'], scoped => {
+    projections = scoped.sessionProjections
+    return () => { projections = undefined }
+  })
   const onEvent = (session, event) => {
     try {
       if (!bridgeToken()) return
@@ -361,6 +390,7 @@ export function apply(ctx) {
         const piece = chunk.text
         if (!piece) return
         const b = bucket(key)
+        b.session = session
         // 正文与思考各留一条缓冲：思考结束转正文时，两段不该被拼成一句
         if (isThink) {
           b.think = tail((b.think || '') + piece)
@@ -378,6 +408,7 @@ export function apply(ctx) {
 
       if (type === 'tool/call') {
         const b = bucket(key)
+        b.session = session
         // 「正在执行命令」看不出到底要跑什么 —— 把命令原文（或路径/模式）带上，
         // 这也是悬浮条上就地批准危险命令时唯一的判断依据。
         const label = toolLabel(data?.name)
@@ -400,6 +431,7 @@ export function apply(ctx) {
 
       if (type === 'turn/start') {
         const b = bucket(key)
+        b.session = session
         b.line = ''
         b.think = ''
         b.done = false
@@ -412,6 +444,7 @@ export function apply(ctx) {
 
       if (type === 'turn/end') {
         const b = bucket(key)
+        b.session = session
         if (b.timer) {
           clearTimeout(b.timer)
           b.timer = undefined

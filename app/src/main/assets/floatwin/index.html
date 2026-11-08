@@ -111,24 +111,43 @@
     border: none; background: transparent; color: var(--muted);
     font-size: 12px; padding: 0; line-height: 1;
   }
-  /* 悬浮窗里的问答框：直接向当前会话提问 */
+
+  /* 上下文用量：一行概览，点开看三段明细 */
+  #usage {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    margin-top: 6px; padding: 4px 2px 0; color: var(--muted); font-size: 11px;
+  }
+  #usage[hidden] { display: none; }
+  #usage-meter { flex: 1 1 auto; height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
+  #usage-fill { display: block; height: 100%; width: 0; background: var(--accent); }
+  #usage-text { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  #usage-detail { flex: 0 0 auto; padding: 6px 2px 0; font-size: 11px; color: var(--muted); }
+  #usage-detail[hidden] { display: none; }
+  .urow { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .urow i { width: 6px; height: 6px; border-radius: 1px; background: var(--accent); }
+  .urow i.sys { background: #9aa4b2; } .urow i.tools { background: #b48cff; }
+  .urow span { flex: 1 1 auto; } .urow b { font-weight: 500; color: var(--fg); }
+
+  /* 紧凑输入栏：+ 图片 / 输入 / 语音 / 发送 */
   #compose {
     flex: 0 0 auto;
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 6px;
     margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
   }
+  #compose button {
+    flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 15px;
+    background: rgba(255,255,255,.08); color: var(--fg); font-size: 15px;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  #compose button.listening { background: rgba(255,107,94,.85); color: #fff; }
   #ask {
     flex: 1 1 auto; min-width: 0;
     background: rgba(255,255,255,.06); border: 1px solid var(--line);
-    color: var(--fg); font-size: 12px; padding: 6px 10px; border-radius: 999px;
-    outline: none;
+    color: var(--fg); font-size: 12.5px; padding: 6px 10px; border-radius: 15px;
+    outline: none; height: 30px;
   }
   #ask::placeholder { color: var(--muted); }
-  #send {
-    flex: 0 0 auto; border: none; border-radius: 999px;
-    padding: 6px 12px; font-size: 12px; font-weight: 600;
-    background: rgba(122,162,255,.92); color: #0b1020;
-  }
+  #send { background: rgba(122,162,255,.92) !important; color: #0b1020 !important; font-weight: 700; }
   #send:disabled { opacity: .4; }
   #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
@@ -156,9 +175,20 @@
   </div>
   <div id="tabs" hidden></div>
   <div id="list"><div class="empty">等待消息…</div></div>
+  <div id="usage" hidden>
+    <span id="usage-text">上下文 0%</span>
+    <span id="usage-meter"><span id="usage-fill"></span></span>
+  </div>
+  <div id="usage-detail" hidden>
+    <div class="urow"><i class="sys"></i><span>系统提示词</span><b id="u-sys">-</b></div>
+    <div class="urow"><i class="tools"></i><span>工具定义</span><b id="u-tools">-</b></div>
+    <div class="urow"><i></i><span>对话消息</span><b id="u-msg">-</b></div>
+  </div>
   <div id="compose">
+    <button id="pick" title="图片">+</button>
     <input id="ask" type="text" placeholder="问点什么…" autocomplete="off" />
-    <button id="send">发送</button>
+    <button id="mic" title="语音">🎙</button>
+    <button id="send" title="发送">↑</button>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
@@ -193,6 +223,31 @@
     post('busy', { value: busy });
   }
 
+  let pendingImage = '';
+
+  function shortK(n) {
+    if (!Number.isFinite(n)) return '?';
+    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1000) return Math.round(n / 1000) + 'K';
+    return String(n);
+  }
+
+  function renderUsage(usage) {
+    const box = el('usage');
+    if (!usage || !Number.isFinite(usage.used) || !Number.isFinite(usage.window) || usage.window <= 0) {
+      box.hidden = true;
+      el('usage-detail').hidden = true;
+      return;
+    }
+    const pct = Math.min(100, Math.round((usage.used / usage.window) * 100));
+    el('usage-text').textContent = '上下文 ' + pct + '% · ' + shortK(usage.used) + '/' + shortK(usage.window);
+    el('usage-fill').style.width = pct + '%';
+    el('u-sys').textContent = '~' + shortK(usage.system);
+    el('u-tools').textContent = '~' + shortK(usage.tools);
+    el('u-msg').textContent = '~' + shortK(usage.messages);
+    box.hidden = false;
+  }
+
   window.dshFloat = {
     toggle: function () {
       // 轻点拖动条：展开/收起最新一条消息
@@ -203,6 +258,27 @@
       openId = last.classList.contains('open') ? last.dataset.id : '';
       post('activity', {});
       post('resize', {});
+    },
+    onVoice: function (text) {
+      const box = el('ask');
+      if (!text) return;
+      box.value = (box.value ? box.value + ' ' : '') + text;
+      el('mic').classList.remove('listening');
+      post('focus', { value: true });
+      box.focus();
+    },
+    onVoiceState: function (state) {
+      el('mic').classList.toggle('listening', state === 'listening');
+    },
+    onVoiceError: function (message) {
+      el('mic').classList.remove('listening');
+      el('ask').placeholder = message || '没听清，再说一次';
+      setTimeout(() => { el('ask').placeholder = '问点什么…'; }, 2600);
+    },
+    onImage: function (path) {
+      pendingImage = path || '';
+      el('ask').placeholder = pendingImage ? '图片已就绪，回车发送' : '问点什么…';
+      post('focus', { value: true });
     },
     onData: function (json) {
       let d = json;
@@ -234,6 +310,7 @@
       const task = activeTask();
       if (!task) return;
       el('title').textContent = task.title || 'RCHA';
+      renderUsage(task.usage);
       const count = state.tasks.length;
       el('count').textContent = count > 1 ? count + ' 个任务' : '';
       el('count').hidden = count <= 1;
@@ -328,8 +405,12 @@
   ask.addEventListener('blur', () => { post('focus', { value: false }); });
 
   function sendText() {
-    const text = (ask.value || '').trim();
-    if (!text) return;
+    const typed = (ask.value || '').trim();
+    const image = pendingImage;
+    if (!typed && !image) return;
+    const text = image ? (typed ? typed + '\n[图片] ' + image : '[图片] ' + image) : typed;
+    pendingImage = '';
+    el('ask').placeholder = '问点什么…';
     const task = activeTask();
     ask.value = '';
     ask.blur();
@@ -355,6 +436,17 @@
     list.scrollTop = list.scrollHeight;
   }
   el('send').addEventListener('click', e => { e.stopPropagation(); sendText(); });
+  el('mic').addEventListener('click', e => {
+    e.stopPropagation();
+    el('ask').classList.remove('listening');
+    post('voice', {});
+  });
+  el('pick').addEventListener('click', e => { e.stopPropagation(); post('pickImage', {}); });
+  el('usage').addEventListener('click', e => {
+    e.stopPropagation();
+    const detail = el('usage-detail');
+    detail.hidden = !detail.hidden;
+  });
   ask.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); sendText(); }
   });

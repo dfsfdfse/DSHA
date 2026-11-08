@@ -14,6 +14,7 @@ import android.os.Bundle;
  */
 public final class FloatPickerActivity extends Activity {
   private static final int REQUEST = 41;
+  static final String EXTRA_TYPE = "picker_type";
 
   @Override
   protected void onCreate(Bundle state) {
@@ -22,7 +23,8 @@ public final class FloatPickerActivity extends Activity {
     try {
       Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
       intent.addCategory(Intent.CATEGORY_OPENABLE);
-      intent.setType("*/*");
+      String type = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_TYPE);
+      intent.setType(type == null || type.isEmpty() ? "*/*" : type);
       startActivityForResult(Intent.createChooser(intent, "选择文件"), REQUEST);
     } catch (RuntimeException error) {
       FloatWindow.deliverPickedFile(null);
@@ -33,13 +35,11 @@ public final class FloatPickerActivity extends Activity {
   @Override
   protected void onActivityResult(int request, int result, Intent data) {
     Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
-    FloatWindow.deliverPickedFile(uri);
+    if (uri != null && getIntent() != null && getIntent().hasExtra(EXTRA_TYPE)) {
+      FloatWindow.deliverPickedImage(uri);
+    } else {
+      FloatWindow.deliverPickedFile(uri);
+    }
     finish();
-  }
-
-  @Override
-  protected void onDestroy() {
-    super.onDestroy();
-    FloatWindow.deliverPickedFile(null);
   }
 }

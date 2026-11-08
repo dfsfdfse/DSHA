@@ -75,6 +75,8 @@ public final class FloatWindow {
   private static boolean userClosed;
   private static String lastWebUrl = "";
   private static android.webkit.ValueCallback<android.net.Uri[]> pendingFileChooser;
+  private static boolean pendingImage;
+  private static android.speech.SpeechRecognizer speech;
 
   private static boolean moving;
   private static boolean resizing;
@@ -141,7 +143,7 @@ public final class FloatWindow {
     Context ctx = watchCtx;
     if (ctx == null) return;
     SharedPreferences p = prefs(ctx);
-    if (!p.getBoolean("floatwin_real", true)) return;
+    if (!p.getBoolean("floatwin_real", false)) return;
     if (!p.getBoolean("floatwin_enabled", true)) return;
     if (!com.deepseekharness.app.OverlayController.permitted(ctx)) return;
     String url = webUrl(ctx);
@@ -206,7 +208,7 @@ public final class FloatWindow {
     if (ctx == null) return;
     SharedPreferences p = prefs(ctx);
     if (!p.getBoolean("floatwin_enabled", true)) return;
-    if (p.getBoolean("floatwin_real", true)) return;  // 真实页面模式下不再自绘
+    if (p.getBoolean("floatwin_real", false)) return;  // 真实页面模式下不再自绘
     if (!com.deepseekharness.app.OverlayController.permitted(ctx)) return;
     File state = guestFile(ctx, GUEST_STATE);
     if (state == null || !state.isFile()) return;
@@ -633,6 +635,14 @@ public final class FloatWindow {
             updateLayout(container);
           }
           return;
+        case "voice": {
+          startVoice();
+          return;
+        }
+        case "pickImage": {
+          pickImage();
+          return;
+        }
         case "send": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) writeInbox(ctx, p.optString("session", ""), p.optString("text", ""));
@@ -721,7 +731,140 @@ public final class FloatWindow {
     }
   }
 
+  /** 悬浮窗里的语音输入：系统识别结果直接回填到页面输入框。 */
+  private static void startVoice() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) return;
+    try {
+      if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+          != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
+        return;
+      }
+      if (!android.speech.SpeechRecognizer.isRecognitionAvailable(ctx)) {
+        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('系统语音识别不可用')");
+        return;
+      }
+      stopVoice();
+      speech = android.speech.SpeechRecognizer.createSpeechRecognizer(ctx);
+      speech.setRecognitionListener(
+          new android.speech.RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(android.os.Bundle params) {}
+
+            @Override
+            public void onBeginningOfSpeech() {}
+
+            @Override
+            public void onRmsChanged(float rms) {}
+
+            @Override
+            public void onBufferReceived(byte[] buffer) {}
+
+            @Override
+            public void onEndOfSpeech() {}
+
+            @Override
+            public void onError(int error) {
+              evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没听清，再说一次')");
+              stopVoice();
+            }
+
+            @Override
+            public void onResults(android.os.Bundle results) {
+              String text = "";
+              try {
+                java.util.ArrayList<String> list =
+                    results.getStringArrayList(
+                        android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                if (list != null && !list.isEmpty()) text = list.get(0);
+              } catch (Throwable ignored) {
+              }
+              evaluate("window.dshFloat&&window.dshFloat.onVoice(" + JSONObject.quote(text) + ")");
+              stopVoice();
+            }
+
+            @Override
+            public void onPartialResults(android.os.Bundle partial) {}
+
+            @Override
+            public void onEvent(int type, android.os.Bundle params) {}
+          });
+      android.content.Intent intent =
+          new android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+      intent.putExtra(
+          android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+          android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+      intent.putExtra(
+          android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toString());
+      intent.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+      speech.startListening(intent);
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceState('listening')");
+    } catch (Throwable error) {
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('语音启动失败')");
+    }
+  }
+
+  private static void stopVoice() {
+    try {
+      if (speech != null) {
+        speech.cancel();
+        speech.destroy();
+      }
+    } catch (Throwable ignored) {
+    }
+    speech = null;
+  }
+
+  /** 选一张图，写进容器后把路径交给页面当附件引用。 */
+  private static void pickImage() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) return;
+    pendingImage = true;
+    try {
+      android.content.Intent intent =
+          new android.content.Intent(ctx, FloatPickerActivity.class)
+              .putExtra(FloatPickerActivity.EXTRA_TYPE, "image/*")
+              .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+      ctx.startActivity(intent);
+    } catch (Throwable error) {
+      pendingImage = false;
+    }
+  }
+
+  static void deliverPickedImage(android.net.Uri uri) {
+    pendingImage = false;
+    Context ctx = web == null ? null : web.getContext();
+    if (uri == null || ctx == null) return;
+    try {
+      File attach = guestFile(ctx, "float-attach");
+      if (attach == null) return;
+      if (!attach.isDirectory() && !attach.mkdirs()) return;
+      File target = new File(attach, "img-" + System.currentTimeMillis() + ".jpg");
+      try (java.io.InputStream in = ctx.getContentResolver().openInputStream(uri);
+          java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+        if (in == null) return;
+        byte[] buffer = new byte[16384];
+        int n;
+        while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+      }
+      evaluate(
+          "window.dshFloat&&window.dshFloat.onImage("
+              + JSONObject.quote("/root/.dsh/float-attach/" + target.getName())
+              + ")");
+    } catch (Throwable ignored) {
+    }
+  }
+
+  private static void evaluate(String js) {
+    try {
+      if (web != null) web.evaluateJavascript(js, null);
+    } catch (Throwable ignored) {
+    }
+  }
+
   private static void dismiss() {
+    stopVoice();
     if (web != null) userClosed = true;
     realPage = false;
     pendingFileChooser = null;
