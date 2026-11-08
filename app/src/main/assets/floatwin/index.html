@@ -217,6 +217,22 @@
   /* 工具调用和思考：折叠时只有一行「标签 · 参数」，点开才看全文（和 dsh 一样） */
   .msg.tool .msg-body, .msg.think .msg-body { display: none; }
   .msg.tool.open .msg-body, .msg.think.open .msg-body { display: block; }
+  .msg.process { border-bottom: 0.5px solid var(--line); }
+  .msg.process .process-head {
+    align-items: center; height: 33px; padding: 0 0 8px;
+    color: var(--tertiary); font-size: var(--fs-content);
+  }
+  .msg.process .msg-title { -webkit-line-clamp: 1; color: inherit; font-size: inherit; }
+  .msg.process .msg-chev { width: 14px; height: 14px; margin-left: 4px; margin-top: 0; }
+  .msg.process .msg-chev svg { width: 14px; height: 14px; stroke-width: 1; }
+  .msg.process.open .msg-chev { transform: rotate(180deg); }
+  .process-body { display: none; padding-left: 10px; }
+  .msg.process.open .process-body { display: block; }
+  .process-body .msg { border-bottom: none; }
+  /* 过程组里的步骤只留一行标题，正文（参数原文）不重复铺开 */
+  .process-body .msg-body { display: none !important; }
+  .process-body .msg.open .msg-body { display: block !important; }
+  .process-body .msg-head { padding: 4px 0; }
   .msg.assistant .badge { display: none; }
   .msg.no-title .msg-head { padding: 2px 0; }
   .msg.think .badge { background: #b8bec7; }
@@ -1028,74 +1044,15 @@
           empty.textContent = '等待消息…';
           list.appendChild(empty);
         }
-        msgs.forEach((m, i) => {
-          const kind = m.kind === 'tool' ? 'tool'
-            : m.kind === 'user' ? 'user'
-              : m.kind === 'think' ? 'think'
-                : m.kind === 'note' ? 'note' : 'assistant';
-          const item = document.createElement('div');
-          item.className = 'msg ' + kind;
-          item.dataset.id = task.id + ':' + i;
-          if (kind === 'note') {
-            item.appendChild(Object.assign(document.createElement('div'), {
-              className: 'msg-note',
-              textContent: m.text || m.title || '',
-            }));
-            list.appendChild(item);
+        const groups = groupMessages(msgs);
+        groups.forEach((group, gi) => {
+          if (group.kind === 'process') {
+            list.appendChild(buildProcessRow(group, task, gi, gi === groups.length - 1));
             return;
           }
-          const isLast = i === msgs.length - 1;
-          // 最新一条默认展开：问完就能直接读回复，不用先点开
-          if (item.dataset.id === openId || (isLast && !openId)) item.classList.add('open');
-          // 回复和提问没有「标题」，正文就是内容（dsh 也是这么排的）
-          if (kind === 'assistant' || kind === 'user') item.classList.add('no-title');
-
-          const head = document.createElement('div');
-          head.className = 'msg-head';
-          const badge = document.createElement('span');
-          badge.className = 'badge';
-          const title = document.createElement('span');
-          title.className = 'msg-title';
-          if (kind === 'tool' || kind === 'think') {
-            const base = m.title || (kind === 'think' ? '思考' : '工具调用');
-            const withCount = m.count > 1 ? base + ' ×' + m.count : base;
-            const first = String(m.text || '').trim().split('\n')[0];
-            // dsh 是把参数直接接在标题后面一行看完的
-            title.textContent = first ? withCount + ' · ' + first : withCount;
-          }
-          const chev = document.createElement('span');
-          chev.className = 'msg-chev';
-          chev.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>';
-          const time = document.createElement('span');
-          time.className = 'msg-time';
-          time.textContent = formatTime(m.at);
-          head.append(badge, title, time, chev);
-
-          const body = document.createElement('div');
-          body.className = 'msg-body';
-          const text = String(m.text || (kind === 'user' ? m.title : '') || '');
-          body.innerHTML = formatBody(text);
-          if (!text.trim()) {
-            body.style.display = 'none';
-            chev.style.visibility = 'hidden';
-          }
-
-          onTap(head, e => {
-            e.stopPropagation();
-            const wasOpen = item.classList.contains('open');
-            document.querySelectorAll('#list .msg.open').forEach(n => n.classList.remove('open'));
-            if (!wasOpen) {
-              item.classList.add('open');
-              openId = item.dataset.id;
-            } else {
-              openId = '';
-            }
-            post('activity', {});
-            post('resize', {});
-          });
-
-          item.append(head, body);
-          list.appendChild(item);
+          const m = group.m;
+          const item = buildMessageRow(m, task, group.index);
+          if (item) list.appendChild(item);
         });
         if (!task.done) {
           const working = document.createElement('div');
@@ -1113,9 +1070,9 @@
         // 没被截断的行不需要展开箭头
         requestAnimationFrame(() => {
           list.querySelectorAll('.msg').forEach(node => {
-            if (node.classList.contains('open')) return;
-            const body = node.querySelector('.msg-body');
-            const chev = node.querySelector('.msg-chev');
+            if (node.classList.contains('open') || node.classList.contains('process')) return;
+            const body = node.querySelector(':scope > .msg-body');
+            const chev = node.querySelector(':scope > .msg-head .msg-chev');
             if (!body || !chev || body.style.display === 'none') return;
             chev.style.visibility = body.scrollHeight > body.clientHeight + 2 ? '' : 'hidden';
           });
@@ -1168,6 +1125,140 @@
       });
       tabs.appendChild(b);
     }
+  }
+
+
+  /** 把消息切成「单条」与「过程组」：连续的思考/工具调用并成一组（dsh 的 TurnProcess）。 */
+  function groupMessages(msgs) {
+    const groups = [];
+    msgs.forEach((m, index) => {
+      const isStep = m.kind === 'tool' || m.kind === 'think';
+      if (isStep) {
+        const last = groups[groups.length - 1];
+        if (last && last.kind === 'process') last.items.push(m);
+        else groups.push({ kind: 'process', items: [m] });
+      } else {
+        groups.push({ kind: 'msg', m, index });
+      }
+    });
+    return groups;
+  }
+
+  /** 过程组摘要：dsh 的「{n} 次工具调用 · {n} 条消息 · 已思考」。 */
+  function processSummary(items) {
+    const tools = items.filter(m => m.kind === 'tool').length;
+    const thoughts = items.filter(m => m.kind === 'think').length;
+    const parts = [];
+    if (tools) parts.push(tools + ' 次工具调用');
+    if (thoughts) parts.push('已思考');
+    return parts.join(' · ') || '过程';
+  }
+
+  const CHEV_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6"/></svg>';
+
+  /** 过程组：一行摘要（33 高、0.5 底边），点开是逐条步骤。 */
+  function buildProcessRow(group, task, gi, isLast) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg process';
+    wrap.dataset.id = task.id + ':p' + gi;
+    // 正在跑的这一轮默认展开，能直接看到当前步骤；跑完自动收起
+    const running = !task.done && isLast;
+    const open = !!(wrap.dataset.id === openId) || (!openId && running);
+    if (open) wrap.classList.add('open');
+
+    const head = document.createElement('div');
+    head.className = 'msg-head process-head';
+    const title = document.createElement('span');
+    title.className = 'msg-title';
+    title.textContent = processSummary(group.items);
+    const chev = document.createElement('span');
+    chev.className = 'msg-chev';
+    chev.innerHTML = CHEV_SVG;
+    head.append(title, chev);
+
+    const body = document.createElement('div');
+    body.className = 'process-body';
+    group.items.forEach((m, i) => {
+      const row = buildMessageRow(m, task, 'p' + gi + '-' + i);
+      if (row) body.appendChild(row);
+    });
+
+    onTap(head, e => {
+      e.stopPropagation();
+      const wasOpen = wrap.classList.contains('open');
+      wrap.classList.toggle('open', !wasOpen);
+      openId = wasOpen ? '' : wrap.dataset.id;
+      post('activity', {});
+      post('resize', {});
+    });
+
+    wrap.append(head, body);
+    return wrap;
+  }
+
+  /** 单条消息行：用户气泡 / 回复正文 / 用时提示。 */
+  function buildMessageRow(m, task, index) {
+    const kind = m.kind === 'tool' ? 'tool'
+      : m.kind === 'user' ? 'user'
+        : m.kind === 'think' ? 'think'
+          : m.kind === 'note' ? 'note' : 'assistant';
+    const item = document.createElement('div');
+    item.className = 'msg ' + kind;
+    item.dataset.id = task.id + ':' + index;
+    if (kind === 'note') {
+      item.appendChild(Object.assign(document.createElement('div'), {
+        className: 'msg-note',
+        textContent: m.text || m.title || '',
+      }));
+      return item;
+    }
+    if (kind === 'assistant' || kind === 'user') item.classList.add('no-title');
+
+    const head = document.createElement('div');
+    head.className = 'msg-head';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    const title = document.createElement('span');
+    title.className = 'msg-title';
+    if (kind === 'tool' || kind === 'think') {
+      const base = m.title || (kind === 'think' ? '思考' : '工具调用');
+      const withCount = m.count > 1 ? base + ' ×' + m.count : base;
+      const first = String(m.text || '').trim().split('\n')[0];
+      title.textContent = first ? withCount + ' · ' + first : withCount;
+    }
+    const chev = document.createElement('span');
+    chev.className = 'msg-chev';
+    chev.innerHTML = CHEV_SVG;
+    const time = document.createElement('span');
+    time.className = 'msg-time';
+    time.textContent = formatTime(m.at);
+    head.append(badge, title, time, chev);
+
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+    const text = String(m.text || (kind === 'user' ? m.title : '') || '');
+    body.innerHTML = formatBody(text);
+    if (!text.trim()) {
+      body.style.display = 'none';
+      chev.style.visibility = 'hidden';
+    }
+
+    onTap(head, e => {
+      e.stopPropagation();
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('#list .msg.open').forEach(n => n.classList.remove('open'));
+      if (!wasOpen) {
+        item.classList.add('open');
+        openId = item.dataset.id;
+      } else {
+        openId = '';
+      }
+      post('activity', {});
+      post('resize', {});
+    });
+
+    item.append(head, body);
+    return item;
   }
 
   /** 选了一个还没有消息的会话：先占位，再请宿主读一次历史。 */
