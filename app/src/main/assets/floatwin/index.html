@@ -719,7 +719,7 @@
   body.fw #perm-menu, body.fw #model-menu { display: none !important; }
   body.t1 #cmd-menu, body.t1 #at-menu, body.t1 #notice { display: none !important; }
   body.fw {
-    --fw-bg: rgba(255, 255, 255, .80);
+    --fw-bg: rgba(255, 255, 255, var(--alpha, .8));
     --fw-line: rgba(0, 0, 0, .06);
     --fw-field: rgba(255, 255, 255, .72);
     --fw-text: rgb(53, 54, 56);          /* neutral-bluish-800，比纯黑浅一档 */
@@ -729,7 +729,7 @@
     --fw-btns: 62px;
   }
   body.fw.dark {
-    --fw-bg: rgba(27, 27, 28, .82);
+    --fw-bg: rgba(27, 27, 28, var(--alpha, .8));
     --fw-line: rgba(255, 255, 255, .08);
     --fw-field: rgba(255, 255, 255, .06);
     --fw-text: rgb(225, 229, 238);
@@ -737,8 +737,7 @@
     --fw-chip: rgba(255, 255, 255, .08);
     --fw-bubble: rgba(122, 170, 255, .14);
   }
-  body.t2 { --fw-bg: rgba(255, 255, 255, .92); --fw-btns: 146px; }
-  body.t2.dark { --fw-bg: rgba(27, 27, 28, .94); }
+  body.t2 { --fw-btns: 146px; }
   body.fw #card {
     padding: 0 8px 8px;
     background: var(--fw-bg);
@@ -908,7 +907,7 @@
 
   <div id="menu" hidden>
     <div class="row"><span>透明度</span><b id="m-alpha-v" style="min-width:32px;text-align:right;color:var(--fg)">100%</b></div>
-    <div class="row"><input id="m-alpha" type="range" min="90" max="100" step="1" value="100"></div>
+    <div class="row"><input id="m-alpha" type="range" min="50" max="100" step="1" value="80"></div>
     <div class="sep"></div>
     <div class="row"><span>会话标签</span><div class="sw on" id="sw-tabs"><i></i></div></div>
     <div class="row"><span>上下文用量</span><div class="sw on" id="sw-usage"><i></i></div></div>
@@ -1666,7 +1665,7 @@
       if (typeof v.tier === 'number') applyTier(v.tier);
       document.body.classList.toggle('dark', v.theme === 'dark');
       if (typeof v.alpha === 'number') {
-        const pct = Math.max(90, Math.min(100, Math.round(v.alpha)));
+        const pct = Math.max(50, Math.min(100, Math.round(v.alpha)));
         document.documentElement.style.setProperty('--alpha', String(pct / 100));
         const slider = el('m-alpha');
         if (slider) slider.value = String(pct);
@@ -2165,7 +2164,7 @@
     });
   });
   el('m-alpha').addEventListener('input', e => {
-    const value = Math.max(90, Math.min(100, Number(e.target.value) || 100));
+    const value = Math.max(50, Math.min(100, Number(e.target.value) || 80));
     el('m-alpha-v').textContent = value + '%';
     // 窗口不再整体半透明，透明全靠这张卡片自己的底色
     document.documentElement.style.setProperty('--alpha', String(value / 100));

@@ -270,7 +270,7 @@ public final class FloatWindow {
           if (alpha > 0) {
             prefs(app)
                 .edit()
-                .putInt("floatwin_alpha", Math.max(90, Math.min(100, alpha)))
+                .putInt(K_OPACITY, Math.max(50, Math.min(100, alpha)))
                 .putBoolean("floatwin_alpha_user", true)
                 .apply();
           }
@@ -504,7 +504,7 @@ public final class FloatWindow {
     view.getSettings().setAllowContentAccess(false);
     view.getSettings().setSupportZoom(false);
     // dsh 原生页面在 360dp 窗口里偏大：默认 75% 缩放；自绘页保持 100%。
-    int zoom = loadCustomPage ? 100 : Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 75)));
+    int zoom = loadCustomPage ? 100 : Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 90)));
     view.getSettings().setTextZoom(zoom);
     view.setVerticalScrollBarEnabled(false);
     view.setHorizontalScrollBarEnabled(false);
@@ -684,20 +684,17 @@ public final class FloatWindow {
     return true;
   }
 
-  /** 半透明度百分比（55–100），页面按它画卡片底色。 */
+  /**
+   * 迷你 / 标准两档的底色不透明度（50–100，默认 80）。只作用于底色，文字始终不透明。
+   * 用新键：旧键 floatwin_alpha 被早期版本强行抬成过 100，沿用会让默认一下子变成全不透明。
+   */
+  private static final String K_OPACITY = "floatwin_opacity";
+
   private static int alphaPercent(Context app) {
     try {
-      SharedPreferences p = prefs(app);
-      int alpha = p.getInt("floatwin_alpha", 100);
-      // 低于 90% 时桌面图标会透到文字上，读不下去：统一抬到 100% 并写回，
-      // 这样旧版本留下的 60% / 92% 都能一次纠正（可再次用手动滑杆调低到 90%）。
-      if (alpha < 90) {
-        alpha = 100;
-        p.edit().putInt("floatwin_alpha", alpha).apply();
-      }
-      return Math.max(90, Math.min(100, alpha));
+      return Math.max(50, Math.min(100, prefs(app).getInt(K_OPACITY, 80)));
     } catch (Throwable error) {
-      return 100;
+      return 80;
     }
   }
 
@@ -849,7 +846,7 @@ public final class FloatWindow {
     // ── 只对当前的界面类型显示相关项：dsh 页面调字号，自绘页调透明度与区块
     if (realPage) {
       body.addView(section(app, "字号", tertiary));
-      final int zoom = Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 75)));
+      final int zoom = Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 90)));
       LinearLayout zoomRow = row(app);
       zoomRow.addView(
           label(app, "缩放比例", 13, fg, false),
@@ -903,20 +900,20 @@ public final class FloatWindow {
           alphaRow,
           new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 24)));
       android.widget.SeekBar alphaBar = new android.widget.SeekBar(app);
-      alphaBar.setMax(10);
-      alphaBar.setProgress(alpha - 90);
+      alphaBar.setMax(50);
+      alphaBar.setProgress(alpha - 50);
       tint(alphaBar, accent, selector);
       alphaBar.setOnSeekBarChangeListener(
           new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(
                 android.widget.SeekBar bar, int progress, boolean fromUser) {
-              int value = 90 + progress;
+              int value = 50 + progress;
               alphaVal.setText(value + "%");
               if (!fromUser) return;
               prefs(app)
                   .edit()
-                  .putInt("floatwin_alpha", value)
+                  .putInt(K_OPACITY, value)
                   .putBoolean("floatwin_alpha_user", true)
                   .apply();
               evaluate(
@@ -934,7 +931,7 @@ public final class FloatWindow {
       body.addView(
           alphaBar,
           new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 34)));
-      body.addView(hint(app, "低于 90% 桌面图标会透到字上，所以最低 90%。", tertiary));
+      body.addView(hint(app, "只调底色，文字始终不透明；最低 50%。", tertiary));
 
       body.addView(section(app, "区块", tertiary));
       String[] blockKeys = {"tabs", "usage", "compose"};
@@ -1518,11 +1515,11 @@ public final class FloatWindow {
           return;
         case "alpha": {
           Context ctx = web == null ? null : web.getContext();
-          int alpha = Math.max(90, Math.min(100, p.optInt("value", 100)));
+          int alpha = Math.max(50, Math.min(100, p.optInt("value", 80)));
           if (ctx != null) {
             prefs(ctx)
                 .edit()
-                .putInt("floatwin_alpha", alpha)
+                .putInt(K_OPACITY, alpha)
                 .putBoolean("floatwin_alpha_user", true)
                 .apply();
           }
