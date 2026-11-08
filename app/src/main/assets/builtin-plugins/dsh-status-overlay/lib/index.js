@@ -254,6 +254,7 @@ async function sendFloat(key, b) {
     active: fullIdOf(key) || key,
     count: tasks.length,
     models: modelCatalog.slice(0, 16),
+    threads: threadList.slice(0, 24),
     notice,
   })
   writeState(payload)
@@ -315,6 +316,149 @@ function liveAgent(agents, wanted) {
   } catch {
     return undefined
   }
+}
+
+let defaultModelApi
+let queryApi
+/** 全部会话（含没有消息的）：页面靠它列出所有对话。 */
+let threadList = []
+/** 最近一次见到的会话工作目录，新建会话时沿用。 */
+let lastCwdPath = ''
+
+function newSessionId() {
+  try {
+    if (globalThis.crypto?.randomUUID) return 'session-' + globalThis.crypto.randomUUID()
+  } catch { }
+  return 'session-' + Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 10)
+}
+
+let threadsAt = 0
+function maybeRefreshThreads() {
+  if (Date.now() - threadsAt < 5000) return
+  threadsAt = Date.now()
+  void refreshThreads()
+}
+
+/** 拉一遍全部会话（持久化的 + 活着的），带上标题。 */
+async function refreshThreads() {
+  if (!queryApi) return
+  try {
+    const records = await queryApi.listSessions()
+    const rows = []
+    const ids = []
+    for (const record of records) {
+      const id = String(record?.header?.id || '')
+      if (!id || ids.includes(id)) continue
+      const cwd = String(record?.header?.cwd || '')
+      if (cwd) lastCwdPath = cwd
+      ids.push(id)
+      rows.push({
+        id,
+        cwd,
+        live: !!record.live,
+        updated: Number(record?.header?.updatedAt || record?.header?.createdAt) || 0,
+        title: '',
+      })
+      if (ids.length >= 24) break
+    }
+    if (ids.length) {
+      try {
+        const titles = await queryApi.readTitleSnapshots(ids)
+        ids.forEach((id, i) => {
+          const result = titles?.[i]
+          const value = result && result.status === 'fulfilled' ? result.value : result
+          const title = String(value?.title || '').trim()
+          if (title) rows[i].title = title.slice(0, 40)
+        })
+      } catch { /* 标题拿不到就只显示目录 */ }
+    }
+    // 已经有消息的会话标题以本地捕获的为准（更及时）
+    for (const row of rows) {
+      const known = titles.get(String(row.id).slice(-8))
+      if (known) row.title = known
+    }
+    rows.sort((a, b) => (b.updated || 0) - (a.updated || 0))
+    threadList = rows
+    publishFloat('')
+  } catch { /* 会话清单不是关键路径 */ }
+}
+
+/** 从持久化日志里折出历史消息：用户、回复、工具调用（只取最近一段）。 */
+async function loadHistory(sessionId) {
+  if (!queryApi || !sessionId) return false
+  try {
+    const loaded = await queryApi.readSession(sessionId)
+    const events = Array.isArray(loaded?.events) ? loaded.events.slice(-260) : []
+    const key = sessionId.slice(-8)
+    const b = bucket(key)
+    b.session = { id: sessionId }
+    b.messages = []
+    const textOf = content => {
+      if (!Array.isArray(content)) return ''
+      return content.filter(p => p && p.type === 'text').map(p => p.text).join('').trim()
+    }
+    for (const event of events) {
+      const data = event?.data || {}
+      if (event.type === 'user/message') {
+        const text = textOf(data.message?.content || data.content)
+        if (text) b.messages.push({ kind: 'user', title: text.slice(0, 120), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+      } else if (event.type === 'assistant/message') {
+        const text = textOf(data.message?.content || data.content)
+        if (text) b.messages.push({ kind: 'assistant', title: text.slice(0, 48), text: text.slice(0, 4000), at: Number(event.at) || 0 })
+      } else if (event.type === 'tool/call') {
+        const label = toolLabel(data.name)
+        const detail = toolDetail(data.arguments)
+        b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
+      }
+    }
+    b.messages = b.messages.slice(-40)
+    b.done = true
+    b.updated = Date.now()
+    if (!b.turns) b.turns = b.messages.filter(m => m.kind === 'user').length
+    if (!b.steps) b.steps = b.messages.filter(m => m.kind === 'tool').length
+    publishFloat(sessionId)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 找出能投递的 agent；没有就新建一个会话（用户要求：dsh 起着就能聊）。 */
+async function ensureAgent(wanted) {
+  if (!agentsApi) return undefined
+  const id = String(wanted || '').trim()
+  const live = liveAgent(agentsApi, id)
+  if (live) return live
+  const modelSelection = (() => {
+    try { return defaultModelApi?.currentSelection?.() } catch { return undefined }
+  })()
+  const agentOptions = {}
+  if (modelSelection?.provider) agentOptions.provider = String(modelSelection.provider)
+  if (modelSelection?.model) agentOptions.model = String(modelSelection.model)
+  // 先试着恢复指定的老会话，再退到新建
+  if (id) {
+    try {
+      const resumed = await agentsApi.resume({ resumeSessionId: id, agentOptions })
+      if (resumed?.agent) return resumed.agent
+    } catch { /* 恢复不了就新建 */ }
+  }
+  const cwd = lastCwdPath || '/root'
+  try {
+    const created = await agentsApi.create({
+      sessionId: newSessionId(),
+      agentOptions,
+      meta: { cwd },
+    })
+    if (created?.agent) return created.agent
+  } catch (error) {
+    try {
+      const created = await agentsApi.create({ sessionId: newSessionId(), agentOptions })
+      if (created?.agent) return created.agent
+    } catch {
+      throw error
+    }
+  }
+  return undefined
 }
 
 /** 把一条提示写进状态并立刻推给页面（7 秒后页面自己收起来）。 */
@@ -441,6 +585,7 @@ function publishFloat(activeKey) {
     active: fullIdOf(activeKey) || activeKey || (tasks.length ? tasks[0].id : ''),
     count: tasks.length,
     models: modelCatalog.slice(0, 16),
+    threads: threadList.slice(0, 24),
     notice,
   }))
 }
@@ -536,6 +681,15 @@ export function apply(ctx) {
     llmApi = scoped.llm
     void refreshModels()
     return () => { llmApi = undefined }
+  })
+  ctx.inject(['sessionQuery'], scoped => {
+    queryApi = scoped.sessionQuery
+    void refreshThreads()
+    return () => { queryApi = undefined }
+  })
+  ctx.inject(['agentDefaultModel'], scoped => {
+    defaultModelApi = scoped.agentDefaultModel
+    return () => { defaultModelApi = undefined }
   })
   const onEvent = (session, event) => {
     try {
@@ -684,6 +838,7 @@ export function apply(ctx) {
           b.messages.push({ kind: 'note', title: '已完成', text: '已完成，用时 ' + duration(spent), at: Date.now() })
           if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         }
+        void maybeRefreshThreads()
         scheduleFloat(key, b)
       }
     } catch {
@@ -811,11 +966,28 @@ function startInbox(ctx) {
         publishFloat('')
         return
       }
+      if (want === 'threads') {
+        await refreshThreads()
+        return
+      }
+      if (want === 'thread') {
+        const id = String(msg.session || '').trim()
+        const ok = id ? await loadHistory(id) : false
+        if (!ok) setNotice('读不到这个会话的历史记录')
+        return
+      }
       if (!text.trim() && !image && !file && !cancel && !hasModel) return
-      // 页面手上的 id 可能是旧的、短的、甚至空的：按完整 id → 短 key → 最近活跃会话兜底
-      const agent = liveAgent(agents, msg.session)
+      // 页面手上的 id 可能是旧的、短的、甚至空的；没有任何活会话时直接新建一个，
+      // 用户的要求是「dsh 起着就能聊」，不该让他先去别处开个对话。
+      let agent
+      try {
+        agent = await ensureAgent(msg.session)
+      } catch (error) {
+        setNotice('新建会话失败：' + String(error?.message || error).slice(0, 70))
+        return
+      }
       if (!agent) {
-        setNotice('没有可投递的会话：请先在 RCHA 里打开一个对话')
+        setNotice('还没有可用的会话，稍后重试或进 RCHA 里发起一次对话')
         return
       }
       if (hasModel) {
@@ -872,6 +1044,8 @@ function startInbox(ctx) {
         agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
         // 送达就把上一次的失败提示撤掉（页面 7 秒后本来也会自己收）
         if (notice) setNotice('')
+        // 新建/恢复出来的会话要出现在「所有对话」里
+        void maybeRefreshThreads()
       } catch (error) {
         setNotice('发送失败：' + String(error?.message || error).slice(0, 60))
       }

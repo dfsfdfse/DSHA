@@ -319,13 +319,20 @@ public final class FloatWindow {
 
   /** 让插件补一次数据（目前只有模型清单）：宿主不解释内容，只转达「请刷新」。 */
   private static void writeWant(Context ctx, String want) {
+    writeWant(ctx, want, "");
+  }
+
+  private static void writeWant(Context ctx, String want, String session) {
     try {
       File inbox = guestFile(ctx, GUEST_INBOX);
       if (inbox == null || want == null || want.isEmpty()) return;
       File dir = inbox.getParentFile();
       if (dir != null) dir.mkdirs();
       JSONObject message =
-          new JSONObject().put("seq", System.currentTimeMillis()).put("want", want);
+          new JSONObject()
+              .put("seq", System.currentTimeMillis())
+              .put("want", want)
+              .put("session", session == null ? "" : session);
       File tmp = new File(inbox.getPath() + ".tmp");
       try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
         out.write(message.toString().getBytes(StandardCharsets.UTF_8));
@@ -771,6 +778,16 @@ public final class FloatWindow {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) pullState(ctx);
           pushPayload();
+          return;
+        }
+        case "thread": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) writeWant(ctx, "thread", p.optString("session", ""));
+          return;
+        }
+        case "threads": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) writeWant(ctx, "threads");
           return;
         }
         case "models": {

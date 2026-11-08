@@ -88,6 +88,10 @@
   }
   #tabs::-webkit-scrollbar { display: none; }
   #tabs[hidden] { display: none; }
+  .tab.live::after {
+    content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 2px;
+    background: var(--accent); margin-left: 4px; vertical-align: 1px;
+  }
   .tab {
     border-radius: 0 !important;
     flex: 0 0 auto; max-width: 140px;
@@ -479,7 +483,9 @@
     node.addEventListener('pointerup', fire);
     node.addEventListener('click', fire);
   }
-  let state = { tasks: [], active: '', models: [], modelName: '' };
+  let state = { tasks: [], active: '', models: [], threads: [], modelName: '' };
+  /** 已经请过宿主导入历史的会话，避免重复请求。 */
+  const historyAsked = new Set();
   let signature = '';
   let openId = '';
   let busy = false;
@@ -769,7 +775,9 @@
         if (label) label.textContent = pct + '%';
       }
       if (typeof v.notice === 'string' && v.notice) showNotice(v.notice, 7000);
-      if (!Array.isArray(v.tasks) || !v.tasks.length) {
+      const threads = Array.isArray(v.threads) ? v.threads : (state.threads || []);
+      state.threads = threads;
+      if (!Array.isArray(v.tasks) || (!v.tasks.length && !threads.length)) {
         el('list').innerHTML =
           '<div class="empty-state">'
           + '<div class="ico"><svg viewBox="0 0 24 24"><path d="M4 6h16v10H8l-4 4z"/></svg></div>'
@@ -785,11 +793,20 @@
         el('count').hidden = true;
         return;
       }
-      state = { tasks: v.tasks.slice(0, 8), active: v.active || v.tasks[0].id, models: Array.isArray(v.models) ? v.models : [] };
+      state = {
+        tasks: (v.tasks || []).slice(0, 8),
+        active: v.active || (v.tasks && v.tasks[0] ? v.tasks[0].id : '') || (threads[0] ? threads[0].id : ''),
+        models: Array.isArray(v.models) ? v.models : [],
+        threads,
+      };
       syncBusy(state.tasks.some(t => !t.done));
+      renderTabs();
 
       const task = activeTask();
-      if (!task) return;
+      if (!task) {
+        if (state.active) showThreadStub(state.active);
+        return;
+      }
       if (task.id) lastSession = String(task.id);
       const modelMenu = el('model-menu');
       if (!modelMenu.hidden && state.models.length) { buildModelMenu(); placeModelMenu(); }
@@ -817,29 +834,6 @@
       const count = state.tasks.length;
       el('count').textContent = count > 1 ? count + ' 个任务' : '';
       el('count').hidden = count <= 1;
-
-      // 标签只按会话集合重建
-      const tabSig = state.tasks.map(t => t.id).join('|') + '#' + state.active;
-      if (tabSig !== signature) {
-        signature = tabSig;
-        const tabs = el('tabs');
-        tabs.textContent = '';
-        tabs.hidden = count <= 1;
-        for (const t of state.tasks) {
-          const b = document.createElement('button');
-          b.className = 'tab' + (t.id === state.active ? ' active' : '');
-          b.textContent = t.title || t.id.slice(-4);
-          onTap(b, e => {
-            e.stopPropagation();
-            state.active = t.id;
-            signature = '';
-            openId = '';
-            render(state);
-            post('activity', {});
-          });
-          tabs.appendChild(b);
-        }
-      }
 
       // 消息列表：按 id 集合重建，展开状态保留
       const msgs = Array.isArray(task.messages) ? task.messages : [];
@@ -962,6 +956,57 @@
   ask.addEventListener('focus', () => { post('focus', { value: true }); });
   ask.addEventListener('blur', () => { post('focus', { value: false }); });
 
+  /** 标签行列出全部对话（有消息的在最前，其余按更新时间）。 */
+  function renderTabs() {
+    const tabs = el('tabs');
+    if (!tabs) return;
+    const rows = state.threads.length
+      ? state.threads.map(t => ({ id: t.id, title: t.title || '', live: !!t.live }))
+      : state.tasks.map(t => ({ id: t.id, title: t.title || '', live: !t.done }));
+    const seen = new Set();
+    const ready = rows.filter(t => (seen.has(t.id) ? false : seen.add(t.id)));
+    const sig = ready.map(t => t.id + ':' + (t.title || '') + (t.live ? '!' : '')).join('|') + '#' + state.active;
+    if (sig === tabs.dataset.sig) {
+      tabs.hidden = ready.length <= 1;
+      return;
+    }
+    tabs.dataset.sig = sig;
+    tabs.textContent = '';
+    tabs.hidden = ready.length <= 1;
+    for (const t of ready.slice(0, 16)) {
+      const b = document.createElement('button');
+      b.className = 'tab' + (t.id === state.active ? ' active' : '') + (t.live ? ' live' : '');
+      b.textContent = t.title || '会话 ' + String(t.id).slice(-4);
+      onTap(b, e => {
+        e.stopPropagation();
+        state.active = t.id;
+        tabs.dataset.sig = '';
+        signature = '';
+        openId = '';
+        render(state);
+        post('activity', {});
+      });
+      tabs.appendChild(b);
+    }
+  }
+
+  /** 选了一个还没有消息的会话：先占位，再请宿主读一次历史。 */
+  function showThreadStub(id) {
+    const list = el('list');
+    if (list.dataset.sig === 'thread:' + id) return;
+    list.dataset.sig = 'thread:' + id;
+    const row = state.threads.find(t => t.id === id);
+    el('title').textContent = (row && row.title) || '会话 ' + String(id).slice(-4);
+    el('live').hidden = true;
+    el('tabs').hidden = state.threads.length <= 1;
+    list.innerHTML = '<div class="empty">正在读取这个对话的历史…</div>';
+    if (!historyAsked.has(id)) {
+      historyAsked.add(id);
+      post('thread', { session: id });
+    }
+    post('resize', {});
+  }
+
   /** 本地回显：先把用户这句放到列表里，等真实数据到达时整块重绘。 */
   function appendEcho(text, hasAttachment) {
     const list = el('list');
@@ -991,7 +1036,7 @@
     const task = activeTask();
     // 状态可能还没送到（或只有旧的任务 id）：把最近一次已知的会话 id 带上，
     // 插件侧还会再按「最近活跃会话」兜底，所以空串也能投递。
-    const session = (task && task.id) || lastSession || '';
+    const session = (task && task.id) || state.active || lastSession || '';
     pendingImage = '';
     pendingFile = '';
     el('attach-bar').hidden = true;
@@ -1006,8 +1051,9 @@
     post('send', { text, image, file, session });
     appendEcho(text, !!(image || file));
     if (!session) {
-      // 没有已知会话：请宿主重新读一次状态，同时说明正在做什么
+      // 完全不知道投给谁：请宿主重新读状态，并说明正在做什么
       post('refresh', {});
+      post('threads', {});
       showNotice('正在唤起 RCHA 会话…', 5000, true);
     } else {
       showNotice('', 0);
@@ -1154,6 +1200,8 @@
   post('ready', {});
   // 宿主在页面加载前推的那一帧会丢：主动请它再读一次状态文件。
   post('refresh', {});
+  // 再请一次会话清单，保证「所有对话」都能列出来
+  post('threads', {});
 })();
 </script>
 </body>
