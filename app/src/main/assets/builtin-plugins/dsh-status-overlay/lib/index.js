@@ -239,6 +239,7 @@ async function sendFloat(key, b) {
       usage,
       model: modelOf(k),
       permission: permissionOf(s.session),
+      goal: goalOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -319,6 +320,7 @@ function liveAgent(agents, wanted) {
   }
 }
 
+let goalsApi
 let permissionApi
 let defaultModelApi
 let queryApi
@@ -422,6 +424,29 @@ async function loadHistory(sessionId) {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * 会话当前的目标（dsh GoalBar 的数据源）：phase / objective / revision。
+ * 只读；暂停、恢复、清除都走 goals 服务的过渡方法（带 revision 校验）。
+ */
+function goalOf(session) {
+  if (!goalsApi || !session || !agentsApi) return null
+  try {
+    const agent = agentsApi.get(String(session.id || ''))
+    if (!agent) return null
+    const view = goalsApi.get(agent)
+    if (!view || view.phase === 'complete') return null
+    return {
+      id: String(view.id),
+      phase: String(view.phase),
+      objective: String(view.objective || '').slice(0, 200),
+      revision: Number(view.revision) || 0,
+      activation: String(view.activation || ''),
+    }
+  } catch {
+    return null
   }
 }
 
@@ -588,6 +613,7 @@ function publishFloat(activeKey) {
       usage,
       model: modelOf(k),
       permission: permissionOf(s.session),
+      goal: goalOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -705,6 +731,10 @@ export function apply(ctx) {
     queryApi = scoped.sessionQuery
     void refreshThreads()
     return () => { queryApi = undefined }
+  })
+  ctx.inject(['goals'], scoped => {
+    goalsApi = scoped.goals
+    return () => { goalsApi = undefined }
   })
   ctx.inject(['permissionPresets'], scoped => {
     permissionApi = scoped.permissionPresets
@@ -991,6 +1021,37 @@ function startInbox(ctx) {
       }
       if (want === 'threads') {
         await refreshThreads()
+        return
+      }
+      if (want === 'goal') {
+        const action = String(msg.value || '').trim()
+        if (!['pause', 'resume', 'clear'].includes(action)) return
+        let target
+        try {
+          target = await ensureAgent(msg.session)
+        } catch (error) {
+          setNotice('目标操作失败：' + String(error?.message || error).slice(0, 60))
+          return
+        }
+        if (!target || !goalsApi) {
+          setNotice('目标操作失败：当前环境不支持')
+          return
+        }
+        try {
+          const view = goalsApi.get(target)
+          if (!view) {
+            setNotice('当前没有进行中的目标')
+          } else {
+            const ref = { id: view.id, revision: view.revision }
+            if (action === 'pause') goalsApi.pause(target, ref)
+            else if (action === 'resume') goalsApi.resume(target, ref)
+            else goalsApi.clear(target, ref)
+            notice = ''
+          }
+        } catch (error) {
+          setNotice('目标操作失败：' + String(error?.message || error).slice(0, 70))
+        }
+        publishFloat('')
         return
       }
       if (want === 'permission') {

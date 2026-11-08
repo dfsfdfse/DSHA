@@ -785,6 +785,13 @@ public final class FloatWindow {
           pushPayload();
           return;
         }
+        case "goal": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) {
+            writeWant(ctx, "goal", p.optString("session", ""), p.optString("value", ""));
+          }
+          return;
+        }
         case "permission": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) {

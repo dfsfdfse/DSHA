@@ -356,6 +356,34 @@
   #usage-card.danger .uhead b { color: #ff6b5e; }
   #usage-card.danger .ubar i { background: #ff6b5e; }
 
+  /* 目标条：dsh GoalBar.module.css（36 高、gap 10、menu 底、13px 标签/目标） */
+  #goalbar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    height: 36px; margin: 6px 0 0; padding: 0 8px 0 10px;
+    border-radius: 12px;
+    background: var(--field);
+    border: 1px solid var(--line);
+  }
+  #goalbar[hidden] { display: none; }
+  #goalbar .gglyph { display: inline-flex; flex: none; color: var(--muted); }
+  #goalbar .gglyph svg { width: 16px; height: 16px; }
+  #goalbar .glabel {
+    flex: none; font-size: 13px; line-height: 24px; font-weight: 500; color: var(--fg);
+  }
+  #goalbar .gobj {
+    flex: 1 1 auto; min-width: 0; overflow: hidden;
+    font-size: 13px; line-height: 20px; color: var(--muted);
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  #goalbar .gactions { display: flex; align-items: center; gap: 10px; flex: none; }
+  #goalbar .gbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px;
+    background: transparent; color: var(--tertiary);
+  }
+  #goalbar .gbtn svg { width: 16px; height: 16px; }
+  #goalbar .gbtn:active { background: var(--selector); color: var(--muted); }
+
   /* 输入栏下方的 dock：ring 用量 + 会话统计（dsh InputBar .dock + ContextMeter） */
   #dock {
     flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
@@ -562,6 +590,15 @@
   <div id="attach-bar" hidden>
     <div class="thumb" id="thumb"><img id="thumb-img" alt=""><button id="thumb-x">×</button></div>
     <div class="file-chip" id="file-chip" hidden><span id="file-name"></span><button id="file-x">×</button></div>
+  </div>
+  <div id="goalbar" hidden>
+    <span class="gglyph" id="goal-glyph"></span>
+    <span class="glabel" id="goal-label">进行中的目标</span>
+    <span class="gobj" id="goal-obj"></span>
+    <span class="gactions">
+      <button class="gbtn" id="goal-toggle" type="button"></button>
+      <button class="gbtn" id="goal-clear" type="button"></button>
+    </span>
   </div>
   <div id="compose">
     <textarea id="ask" rows="1" placeholder="发消息或创建任务, / 调用指令, @ 文件或对话" autocomplete="off"></textarea>
@@ -976,6 +1013,7 @@
           + '<span>直接在下面输入框提问<br>会在 RCHA 里发起对话</span>'
           + '</div>';
         syncBusy(false);
+        if (el('goalbar')) el('goalbar').hidden = true;
         el('compose').classList.toggle('compact', el('compose').clientWidth > 0 && el('compose').clientWidth < 460);
         if (workingTimer) { clearInterval(workingTimer); workingTimer = 0; }
         refreshSendMode();
@@ -1011,6 +1049,7 @@
       state.modelName = task.model ? String(task.model) : (state.modelName || '');
       state.permission = task.permission || state.permission || null;
       renderPermission();
+      renderGoal(task);
       if (task.model && el('model-name')) {
         el('model-name').textContent = String(task.model).slice(0, 18);
       }
@@ -1389,6 +1428,37 @@
     el('file-chip').hidden = true;
     if (!pendingImage) el('attach-bar').hidden = true;
   });
+  /** 目标条图标：dsh GoalBar 用的 goal/pause/play/trash 原稿。 */
+  const GOAL_GLYPHS = {
+    goal: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M14.5001 8C14.5 9.28552 14.1188 10.5422 13.4045 11.611C12.6903 12.6799 11.6752 13.5129 10.4875 14.0049C9.29982 14.4968 7.99295 14.6255 6.73212 14.3747C5.4713 14.124 4.31314 13.505 3.4041 12.596C2.49514 11.687 1.87614 10.5288 1.62537 9.26798C1.37459 8.00716 1.50331 6.70028 1.99525 5.51261C2.48719 4.32494 3.32025 3.30981 4.3891 2.59557C5.45795 1.88134 6.71458 1.50008 8.0001 1.5" stroke="currentColor"/><path d="M11.5 8C11.5001 8.69227 11.2948 9.36901 10.9102 9.94463C10.5257 10.5202 9.97901 10.9689 9.33944 11.2338C8.69986 11.4987 7.99609 11.5681 7.31712 11.433C6.63816 11.2979 6.01449 10.9645 5.52501 10.475C5.03548 9.98552 4.70209 9.36185 4.56702 8.68289C4.43195 8.00392 4.50127 7.30015 4.76619 6.66057C5.03112 6.021 5.47976 5.47436 6.05538 5.08978C6.631 4.70519 7.30774 4.49995 8.00001 4.5" stroke="currentColor"/></svg>',
+    pause: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 14.5C11.5899 14.5 14.5 11.5899 14.5 8C14.5 4.41015 11.5899 1.5 8 1.5C4.41015 1.5 1.5 4.41015 1.5 8C1.5 11.5899 4.41015 14.5 8 14.5Z"/><path d="M6.5 5V11"/><path d="M9.5 5V11"/></svg>',
+    play: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 14.5C11.5899 14.5 14.5 11.5899 14.5 8C14.5 4.41015 11.5899 1.5 8 1.5C4.41015 1.5 1.5 4.41015 1.5 8C1.5 11.5899 4.41015 14.5 8 14.5Z"/><path d="M10.3329 7.91346C10.3996 7.95195 10.3996 8.04818 10.3329 8.08667L6.78304 10.1362C6.71638 10.1747 6.63304 10.1266 6.63304 10.0496L6.63304 5.95055C6.63304 5.87357 6.71638 5.82546 6.78304 5.86395L10.3329 7.91346Z"/></svg>',
+    trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.28149 3.88831H14.7187"/><path d="M5.41602 3.88833V2.47962C5.41602 2.29282 5.52492 2.11366 5.71876 1.98157C5.9126 1.84948 6.17551 1.77527 6.44964 1.77527H9.55053C9.82466 1.77527 10.0876 1.84948 10.2814 1.98157C10.4753 2.11366 10.5842 2.29282 10.5842 2.47962V3.88833"/><path d="M2.57349 3.88831L3.19366 13.2943C3.21937 13.5502 3.33952 13.7872 3.53065 13.9593C3.72178 14.1313 3.97016 14.2259 4.22729 14.2246H11.7728C12.0299 14.2259 12.2783 14.1313 12.4694 13.9593C12.6605 13.7872 12.7807 13.5502 12.8064 13.2943L13.4266 3.88831"/><path d="M6.44946 6.98926V11.1238"/><path d="M9.55054 6.98926V11.1238"/></svg>',
+  };
+
+  /** 目标条：阶段文案 + 目标正文 + 暂停/恢复 + 清除（dsh GoalBar）。 */
+  function renderGoal(task) {
+    const bar = el('goalbar');
+    if (!bar) return;
+    const goal = task && task.goal;
+    if (!goal || !goal.phase) { bar.hidden = true; return; }
+    const labels = {
+      active: goal.activation === 'disarmed' ? '待继续的目标' : '进行中的目标',
+      paused: '已暂停的目标',
+      blocked: '受阻的目标',
+    };
+    el('goal-label').textContent = labels[goal.phase] || '进行中的目标';
+    el('goal-obj').textContent = goal.objective || '';
+    el('goal-glyph').innerHTML = GOAL_GLYPHS.goal;
+    const toggle = el('goal-toggle');
+    const running = goal.phase === 'active' && goal.activation !== 'disarmed';
+    toggle.innerHTML = running ? GOAL_GLYPHS.pause : GOAL_GLYPHS.play;
+    toggle.title = running ? '暂停目标' : '恢复目标';
+    el('goal-clear').innerHTML = GOAL_GLYPHS.trash;
+    el('goal-clear').title = '清除目标';
+    bar.hidden = false;
+  }
+
   /** 权限胶囊：图标 + 中文名（dsh PermissionSelect 的 trigger）。 */
   function renderPermission() {
     const info = state.permission;
@@ -1500,6 +1570,24 @@
     });
     return true;
   }
+
+  onTap(el('goal-toggle'), e => {
+    e.stopPropagation();
+    const task = activeTask();
+    const goal = task && task.goal;
+    if (!goal) return;
+    const running = goal.phase === 'active' && goal.activation !== 'disarmed';
+    post('goal', { session: state.active || lastSession || '', value: running ? 'pause' : 'resume' });
+    showNotice(running ? '已请求暂停目标' : '已请求恢复目标', 3000, true);
+  });
+
+  onTap(el('goal-clear'), e => {
+    e.stopPropagation();
+    const task = activeTask();
+    if (!task || !task.goal) return;
+    post('goal', { session: state.active || lastSession || '', value: 'clear' });
+    showNotice('已请求清除目标', 3000, true);
+  });
 
   onTap(el('perm'), e => {
     e.stopPropagation();
