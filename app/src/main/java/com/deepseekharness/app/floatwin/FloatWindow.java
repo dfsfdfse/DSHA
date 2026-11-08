@@ -55,7 +55,10 @@ public final class FloatWindow {
 
   private static final String GUEST_INBOX = "float-inbox.json";
   private static final int MIN_W_DP = 200;
-  private static final int MIN_H_DP = 140;
+  private static final int MIN_H_DP = 100;
+  private static final int TIER1_DP = 130; // micro
+  private static final int TIER2_DP = 240; // mid
+  private static final int TIER3_DP = 380; // full
 
   private static final Handler main = new Handler(Looper.getMainLooper());
   private static Context appCtx;
@@ -190,7 +193,7 @@ public final class FloatWindow {
   private static View settingsPanel;
   /** 紧凑模式：窗口压到一小条，只露最近的消息和输入栏；再点展开回原高度。 */
   private static final String K_COMPACT = "floatwin_compact";
-  private static final int COMPACT_DP = 200;
+  private static final int COMPACT_DP = TIER1_DP;
   private static android.widget.TextView compactButton;
 
   public static void showCustom(Context context) {
@@ -526,9 +529,8 @@ public final class FloatWindow {
                 v.evaluateJavascript(
                     "(function(){"
                         + "var r=document.getElementById('root')||document.body;"
-                        + "if(!r||r.dataset.fwPad)return;"
-                        + "r.dataset.fwPad='1';r.style.boxSizing='border-box';"
-                        + "r.style.paddingTop='26px';"
+                        + "if(!r)return;"// CSS 插件按 innerHeight 判断档位并管理 paddingTop；Java 不再写死 26px
+                        + "r.dataset.fwPad='fw';"
                         + "})();",
                     null);
               } catch (Throwable ignored) {
@@ -681,10 +683,11 @@ public final class FloatWindow {
     int screenH = screenH(app);
     SharedPreferences p = prefs(app);
     int defaultW = Math.min((int) (screenW * 0.94f), 760);
-    int defaultH = Math.min(dp(app, 340), (int) (screenH * 0.55f));
+    int defaultH = dp(app, TIER1_DP); // default to micro tier
+    int savedH = p.getInt(K_H, defaultH);
+    if (p.getBoolean(K_COMPACT, false) && savedH > dp(app, TIER2_DP)) savedH = dp(app, TIER1_DP);
     lp.width = Math.max(dp(app, MIN_W_DP), Math.min(screenW, p.getInt(K_W, defaultW)));
-    lp.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, p.getInt(K_H, defaultH)));
-    if (p.getBoolean(K_COMPACT, false)) lp.height = Math.min(lp.height, dp(app, COMPACT_DP));
+    lp.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, savedH));
     lp.gravity = Gravity.TOP | Gravity.START;
     lp.x = clamp(p.getInt(K_X, (screenW - lp.width) / 2), 0, Math.max(0, screenW - lp.width));
     lp.y = clamp(p.getInt(K_Y, dp(app, 64)), 0, Math.max(0, screenH - lp.height));
@@ -1308,24 +1311,23 @@ public final class FloatWindow {
     }
   }
 
-  /** 收起成一小条（只看最近消息 + 输入栏）或展开回保存的高度；网页不重载，dsh 自己按高度重排。 */
+  /** 三档循环：micro(130dp) → mid(240dp) → full(380dp) → micro。网页不重载，CSS 插件按 innerHeight 设 fw-* 类。 */
   private static void toggleCompact(Context app) {
     if (params == null || container == null) return;
-    SharedPreferences p = prefs(app);
-    boolean compact = !p.getBoolean(K_COMPACT, false);
     int screenH = screenH(app);
-    if (compact) {
-      if (params.height > dp(app, COMPACT_DP)) p.edit().putInt(K_H, params.height).apply();
-      params.height = Math.min(params.height, dp(app, COMPACT_DP));
-    } else {
-      int defaultH = Math.min(dp(app, 340), (int) (screenH * 0.55f));
-      int full = Math.max(dp(app, COMPACT_DP + 60), p.getInt(K_H, defaultH));
-      params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, full));
-    }
-    // 展开时向下长；碰到屏幕底就整体上移
+    int t1 = dp(app, TIER1_DP);
+    int t2 = dp(app, TIER2_DP);
+    int t3 = Math.min(dp(app, TIER3_DP), (int) (screenH * 0.70f));
+    int h = params.height;
+    int next;
+    if (h <= t1 + dp(app, 25))      next = t2;   // micro → mid
+    else if (h <= t2 + dp(app, 25)) next = t3;   // mid → full
+    else                              next = t1;   // full → micro
+    params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, next));
     params.y = clamp(params.y, 0, Math.max(0, screenH - params.height));
-    p.edit().putBoolean(K_COMPACT, compact).apply();
-    if (compactButton != null) compactButton.setText(compact ? "▴" : "▾");
+    boolean micro = params.height <= t1 + dp(app, 20);
+    prefs(app).edit().putBoolean(K_COMPACT, micro).putInt(K_H, params.height).apply();
+    if (compactButton != null) compactButton.setText(micro ? "▴" : "▾");
     closeSettings();
     updateLayout(container);
   }
