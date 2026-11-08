@@ -405,6 +405,9 @@
       if (!task) return;
       el('title').textContent = task.title || 'RCHA';
       renderUsage(task.usage);
+      if (task.model && el('model')) {
+        el('model').firstElementChild.textContent = String(task.model).slice(0, 14);
+      }
       const count = state.tasks.length;
       el('count').textContent = count > 1 ? count + ' 个任务' : '';
       el('count').hidden = count <= 1;

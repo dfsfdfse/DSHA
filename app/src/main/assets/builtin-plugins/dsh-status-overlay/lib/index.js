@@ -236,6 +236,7 @@ async function sendFloat(key, b) {
       updated: s.updated || 0,
       done: !!s.done,
       usage: usageOf(s.session),
+      model: modelOf(k),
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -251,6 +252,7 @@ async function sendFloat(key, b) {
 }
 
 let projections
+let agentsApi
 
 /** 上下文用量：token-meter 的投影（已用/窗口 + 系统提示词/工具/消息三段）。 */
 function usageOf(session) {
@@ -270,6 +272,20 @@ function usageOf(session) {
     }
   } catch {
     return null
+  }
+}
+
+/** 当前会话用的模型名（给悬浮窗的模型胶囊用）；拿不到就空串。 */
+function modelOf(sessionId) {
+  try {
+    if (!agentsApi) return ''
+    const agent = agentsApi.get(String(sessionId || ''))
+    if (!agent) return ''
+    const selection = agentsApi.selectionFor(agent)
+    const current = selection && selection.current
+    return current && current.model ? String(current.model) : ''
+  } catch {
+    return ''
   }
 }
 
@@ -294,6 +310,7 @@ function publishFloat(activeKey) {
       updated: s.updated || 0,
       done: !!s.done,
       usage: usageOf(s.session),
+      model: modelOf(k),
     })
   }
   tasks.sort((left, right) => right.updated - left.updated)
@@ -361,6 +378,10 @@ export function apply(ctx) {
   ctx.inject(['sessionProjections'], scoped => {
     projections = scoped.sessionProjections
     return () => { projections = undefined }
+  })
+  ctx.inject(['agents'], scoped => {
+    agentsApi = scoped.agents
+    return () => { agentsApi = undefined }
   })
   const onEvent = (session, event) => {
     try {
