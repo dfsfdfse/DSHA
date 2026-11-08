@@ -601,8 +601,8 @@ async function openInApp(session) {
   const url = 'http://127.0.0.1:3090/app/floatwin?panel=chat&session=' + encodeURIComponent(session || '')
   try {
     const res = await fetch(url, { headers: { 'X-Token': tok }, signal: AbortSignal.timeout(4000) })
-    const body = (await res.text()).trim()
-    return body.startsWith('OK')
+    // 桥的回复包在 {"result":"OK chat …"} 里，必须先拆开再判断
+    return unwrap(await res.text()).startsWith('OK')
   } catch {
     return false
   }

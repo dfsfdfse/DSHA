@@ -1567,6 +1567,8 @@
   let userPicked = false;
   /** 已经向插件要过历史的会话，避免每次推送都重复请求。 */
   const askedCurrent = new Set();
+  /** 已经处理过的宿主 current 值；只有它变化时才跟随。 */
+  let seenCurrent = null;
   /** 选中的会话在数据里消失的起始时间（被删/读不到时回退到最近活跃）。 */
   let staleSince = 0;
   /** 发了「新会话」的第一句后，等新会话出现在状态里再切过去。 */
@@ -1601,13 +1603,18 @@
   }
 
   /** 把宿主记住的会话接回来：唤醒/重开窗口后落到同一个会话，而不是最后被问过的那个。 */
+  /**
+   * 只在宿主的 current **变了** 时才跟随（窗口刚打开 / 语音或工具指定了会话）。
+   * 不能拿它反复「纠正」界面：用户或宿主刚切到别的会话时，下一帧载荷里的 current
+   * 可能还是旧值，一纠正就跳回旧会话——这正是「打开指定会话却显示别的会话」的原因。
+   */
   function adoptCurrent() {
-    if (userPicked) return;
     const want = typeof state.current === 'string' ? state.current : '';
-    if (!want || want === selectedId) return;
-    if (want === 'new') { applyAdopted('new'); return; }
+    if (want === seenCurrent) return;
+    if (!want || want === selectedId) { seenCurrent = want; return; }
+    if (want === 'new') { applyAdopted('new'); seenCurrent = want; return; }
     const known = (state.tasks || []).some(t => t.id === want) || (state.threads || []).some(t => t.id === want);
-    if (known) { applyAdopted(want); return; }
+    if (known) { applyAdopted(want); seenCurrent = want; return; }
     // 不在状态文件里（不是最近活跃的那几条）：请插件读一次历史，读到了下一帧就会命中
     if (!askedCurrent.has(want)) {
       askedCurrent.add(want);
@@ -1748,7 +1755,7 @@
   /** 明确切到某个会话（'new' = 新会话草稿）：面板点行和宿主指令都走这里。 */
   function selectSessionTo(id) {
     const want = typeof id === 'string' ? id : '';
-    userPicked = false;
+    userPicked = true;
     selectedId = want;
     if (want) post('current', { session: want });
     tailSig = '';
