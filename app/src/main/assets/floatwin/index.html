@@ -292,6 +292,25 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #cmd-menu.tip { padding: 7px 8px; font-size: 12px; color: var(--tertiary); }
 
+  /* @ 引用菜单：同 popup 卡（PopupSelectView），行里带 file / directory 图标 */
+  #at-menu {
+    position: absolute; left: 10px; right: 10px; bottom: 104px; z-index: 7;
+    padding: 4px; border: 1px solid var(--line); border-radius: 16px;
+    background: var(--field); box-shadow: 0 12px 30px rgba(0,0,0,.18);
+    max-height: min(320px, 46vh); overflow-y: auto;
+  }
+  #at-menu[hidden] { display: none; }
+  #at-menu button {
+    display: flex; align-items: center; gap: 6px;
+    width: 100%; padding: 5px 7px; border: none; border-radius: 12px;
+    background: transparent; color: var(--fg); font-family: inherit;
+    font-size: 12px; text-align: left;
+  }
+  #at-menu button.on { background: var(--hover); }
+  #at-menu .afile { flex: 0 0 14px; width: 14px; height: 14px; color: var(--tertiary); }
+  #at-menu .apath { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #at-menu.tip { padding: 7px 8px; font-size: 12px; color: var(--tertiary); }
+
   /* 权限菜单：和模型菜单同一套 Menu 规格 */
   #perm-menu {
     position: absolute; left: 10px; bottom: 104px; z-index: 6;
@@ -616,6 +635,7 @@
     <div class="hint">拖右下角或右侧/下边缘可改宽高；≡ 再点一次收起。</div>
   </div>
   <div id="cmd-menu" hidden></div>
+  <div id="at-menu" hidden></div>
   <div id="perm-menu" hidden></div>
   <div id="model-menu" hidden></div>
   <div id="notice" hidden></div>
@@ -1090,6 +1110,9 @@
       renderUsage(task.usage);
       state.modelName = task.model ? String(task.model) : (state.modelName || '');
       if (Array.isArray(task.commands)) state.commands = task.commands;
+      state.files = v.files || state.files || null;
+      const atMenu = el('at-menu');
+      if (atMenu && !atMenu.hidden) updateAtMenu();
       state.permission = task.permission || state.permission || null;
       renderPermission();
       renderGoal(task);
@@ -1468,6 +1491,86 @@
     el('file-chip').hidden = true;
     if (!pendingImage) el('attach-bar').hidden = true;
   });
+  const AT_FILE = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9.5 1.5H4.5C3.7 1.5 3 2.2 3 3V13C3 13.8 3.7 14.5 4.5 14.5H11.5C12.3 14.5 13 13.8 13 13V5L9.5 1.5Z"/><path d="M9.5 1.5V5H13"/></svg>';
+  const AT_DIR = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 4.5C1.5 3.7 2.2 3 3 3H6L7.5 5H13C13.8 5 14.5 5.7 14.5 6.5V12C14.5 12.8 13.8 13.5 13 13.5H3C2.2 13.5 1.5 12.8 1.5 12V4.5Z"/></svg>';
+
+  /** 光标前是否处在一个 @ 引用里（规则照 dsh file-reference/grammar.ts 的 activeAtToken）。 */
+  function activeAtToken() {
+    const box = el('ask');
+    const caret = typeof box.selectionStart === 'number' ? box.selectionStart : String(box.value).length;
+    const before = String(box.value).slice(0, caret);
+    const quoted = /(?:^|\s)(@"([^"]*))$/.exec(before);
+    if (quoted) return { prefix: quoted[1], query: quoted[2], quoted: true, caret };
+    const plain = /(?:^|\s)(@([^\s]*))$/.exec(before);
+    if (!plain) return null;
+    return { prefix: plain[1], query: plain[2], quoted: false, caret };
+  }
+
+  let atTimer = 0;
+  let atPending = '';
+  function updateAtMenu() {
+    const menu = el('at-menu');
+    if (!menu) return;
+    const token = activeAtToken();
+    if (!token) { menu.hidden = true; return; }
+    const result = state.files;
+    if (!result || result.query !== token.query) {
+      // 查询变了：请宿主补一次候选，等结果回来再画
+      if (atPending !== token.query) {
+        atPending = token.query;
+        clearTimeout(atTimer);
+        atTimer = setTimeout(() => {
+          post('files', { session: state.active || lastSession || '', query: token.query });
+        }, 160);
+      }
+    }
+    const items = result && result.query === token.query ? (result.items || []) : [];
+    if (!items.length) {
+      if (result && result.query === token.query) {
+        menu.textContent = '没有匹配的文件';
+        menu.className = 'tip';
+        menu.hidden = false;
+        placeCommandMenu();
+      } else {
+        menu.hidden = true;
+      }
+      return;
+    }
+    menu.className = '';
+    menu.textContent = '';
+    items.forEach((item, i) => {
+      const b = document.createElement('button');
+      if (i === 0) b.className = 'on';
+      const icon = document.createElement('span');
+      icon.className = 'afile';
+      icon.innerHTML = item.k === 'directory' ? AT_DIR : AT_FILE;
+      const path = document.createElement('span');
+      path.className = 'apath';
+      path.textContent = item.p;
+      b.append(icon, path);
+      onTap(b, ev => {
+        ev.stopPropagation();
+        const box = el('ask');
+        const value = String(box.value);
+        const start = box.selectionStart === null ? value.length : box.selectionStart;
+        const before = value.slice(0, start).replace(new RegExp(token.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), '');
+        const after = value.slice(start);
+        // 含空格要用 dsh 的 @"…" 语法；目录选完停在目录里继续补全
+        const text = /\s/.test(item.p) ? '@"' + item.p + '"' : '@' + item.p;
+        const tail = item.k === 'directory' ? '' : ' ';
+        box.value = before + text + tail + after;
+        menu.hidden = true;
+        atPending = '';
+        growAsk();
+        post('focus', { value: true });
+        box.focus();
+      });
+      menu.appendChild(b);
+    });
+    menu.hidden = false;
+    placeCommandMenu();
+  }
+
   /** / 指令菜单：输入以 / 开头且还没空格时列出可用命令（dsh 的 popupSelect）。 */
   function updateCommandMenu() {
     const menu = el('cmd-menu');
@@ -1740,6 +1843,7 @@
     ask.style.height = Math.min(84, Math.max(36, ask.scrollHeight)) + 'px';
     refreshSendMode();
     updateCommandMenu();
+    updateAtMenu();
   }
   ask.addEventListener('input', growAsk);
 
@@ -1757,6 +1861,8 @@
     if (!menu.hidden && !menu.contains(e.target) && e.target.id !== 'model' && !e.target.closest('#model')) {
       menu.hidden = true;
     }
+    const atMenu = el('at-menu');
+    if (atMenu && !atMenu.hidden && !atMenu.contains(e.target)) atMenu.hidden = true;
     const cmdMenu = el('cmd-menu');
     if (cmdMenu && !cmdMenu.hidden && !cmdMenu.contains(e.target)) cmdMenu.hidden = true;
     const permMenu = el('perm-menu');

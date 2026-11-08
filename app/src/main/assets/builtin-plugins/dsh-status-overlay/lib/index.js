@@ -258,6 +258,7 @@ async function sendFloat(key, b) {
     count: tasks.length,
     models: modelCatalog.slice(0, 16),
     threads: threadList.slice(0, 24),
+    files: filesResult,
     notice,
   })
   writeState(payload)
@@ -321,7 +322,10 @@ function liveAgent(agents, wanted) {
   }
 }
 
+let fileRefApi
 let commandsApi
+/** @ 引用补全的最近一次结果（页面按 query 对齐）。 */
+let filesResult = null
 let goalsApi
 let permissionApi
 let defaultModelApi
@@ -647,6 +651,7 @@ function publishFloat(activeKey) {
     count: tasks.length,
     models: modelCatalog.slice(0, 16),
     threads: threadList.slice(0, 24),
+    files: filesResult,
     notice,
   }))
 }
@@ -747,6 +752,10 @@ export function apply(ctx) {
     queryApi = scoped.sessionQuery
     void refreshThreads()
     return () => { queryApi = undefined }
+  })
+  ctx.inject(['fileReferences'], scoped => {
+    fileRefApi = scoped.fileReferences
+    return () => { fileRefApi = undefined }
   })
   ctx.inject(['commands'], scoped => {
     commandsApi = scoped.commands
@@ -1041,6 +1050,29 @@ function startInbox(ctx) {
       }
       if (want === 'threads') {
         await refreshThreads()
+        return
+      }
+      if (want === 'files') {
+        const realQuery = String(msg.value || '')
+        let target
+        try {
+          target = await ensureAgent(msg.session)
+        } catch {
+          filesResult = { query: realQuery, items: [] }
+          publishFloat('')
+          return
+        }
+        let items = []
+        try {
+          if (target && fileRefApi) {
+            const found = await fileRefApi.list(target, realQuery, AbortSignal.timeout(5000))
+            items = (found || []).slice(0, 30).map(c => ({ p: String(c.path), k: String(c.kind) }))
+          }
+        } catch {
+          items = []
+        }
+        filesResult = { query: realQuery, items }
+        publishFloat('')
         return
       }
       if (want === 'goal') {
