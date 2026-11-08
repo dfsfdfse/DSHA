@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "runtimeId": "17d23d64de9d83837d582e825382e405bb7a9f7be2347a63f1763e69cad69a88",
+  "runtimeId": "1505f49da9890a8dfbb07ec5f2fb112cfc373fc6767b557ac16f7aa0f729bfd2",
   "baseVersion": "10",
   "dshVersion": "0.2.1-rc.2",
   "launcherContract": "DSHA_ARM64_V2",
@@ -431,7 +431,7 @@
     "builtin-plugins/dsh-device-shell-guide/lib/index.js": "dfaeff9cd2accb6a5f47d21a3ead83063034fe64722bbbe3c6664dff9d37b632",
     "builtin-plugins/dsh-device-shell-guide/package.json": "7a35c16274df97027b7143cf752a20b9675bb286bd2de2f4ea9a0ef72b400285",
     "builtin-plugins/dsh-status-overlay/cordis.patch.yml": "b5bffe96400a2164f313f8c86b071840387015976796fdce1e3e476f233490bd",
-    "builtin-plugins/dsh-status-overlay/lib/index.js": "c32708bf3f1df62b129059691aeefa2e69c8cdd60abf160921b79c4ba325d508",
+    "builtin-plugins/dsh-status-overlay/lib/index.js": "1d2888c0b115631d91a6e10b425b4b435a14f4d0c24ca824d536707a6911f99f",
     "builtin-plugins/dsh-status-overlay/package.json": "85d452eb38380a4fe60e92b800f8ea6409926e351fe264b3f01d9113b796dc15",
     "builtin-plugins/dsh-task-notifier/cordis.patch.yml": "bdfd53321389b451a91a077aa12c07533a983f0534dccb63ff48979d8f07ee92",
     "builtin-plugins/dsh-task-notifier/lib/index.js": "f7b3c5658e486386bbe67cc79f9a071f70806613460d3746b929000ffe4ccdbd",

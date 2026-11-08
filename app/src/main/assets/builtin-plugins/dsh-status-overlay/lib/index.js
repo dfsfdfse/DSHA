@@ -373,11 +373,18 @@ async function refreshThreads() {
     }
     if (ids.length) {
       try {
-        const titles = await queryApi.readTitleSnapshots(ids)
+        const titleResults = await queryApi.readTitleSnapshots(ids)
         ids.forEach((id, i) => {
-          const result = titles?.[i]
-          const value = result && result.status === 'fulfilled' ? result.value : result
-          const title = String(value?.title || '').trim()
+          const result = titleResults?.[i]
+          const value = result && result.status === 'fulfilled' ? result.value : undefined
+          if (!value) return
+          // foldSessionTitle 返回的是快照对象（{title, messageSeqs, source, eventSeq…}），
+          // 直接 String() 会变成 [object Object]。
+          const snapshot = value.title
+          const text = typeof snapshot === 'string'
+            ? snapshot
+            : String(snapshot?.title || '')
+          const title = text.trim()
           if (title) rows[i].title = title.slice(0, 40)
         })
       } catch { /* 标题拿不到就只显示目录 */ }

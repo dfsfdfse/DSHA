@@ -14,6 +14,7 @@
     --tertiary: rgb(129, 133, 140);    /* --dsw-alias-label-tertiary */
     --caption: rgb(173, 178, 184);     /* --dsw-alias-label-caption */
     --line: rgba(0, 0, 0, .10);        /* --dsw-alias-border-l2 */
+    --line-soft: rgba(0, 0, 0, .04);   /* --dsw-alias-border-l1 */
     --line-strong: rgba(0, 0, 0, .12); /* --dsw-alias-border-l3 */
     --accent: rgb(65, 118, 230);       /* --dsw-alias-button-info-fill */
     --field: #fff;                     /* --dsw-specific-input-major */
@@ -40,6 +41,7 @@
     --tertiary: rgb(173, 178, 184);
     --caption: rgb(129, 133, 140);
     --line: rgba(255, 255, 255, .12);
+    --line-soft: rgba(255, 255, 255, .06);
     --line-strong: rgba(255, 255, 255, .16);
     --accent: rgb(122, 170, 255);
     --field: rgb(44, 44, 46);
@@ -72,7 +74,7 @@
     height: 100%;
     display: flex; flex-direction: column;
     background: rgba(var(--bg-rgb), var(--alpha));
-    border: 1px solid var(--line);
+    border: 0.5px solid var(--line-soft);
     border-radius: 6px;
     padding: 10px 14px 10px;
     box-shadow: 0 8px 28px rgba(0,0,0,.18);
@@ -127,20 +129,20 @@
     content: ''; display: inline-block; width: 4px; height: 4px; border-radius: 2px;
     background: var(--accent); margin-left: 4px; vertical-align: 1px;
   }
+  /* 会话标签：dsh 的工具栏控件不带描边，只有悬停/选中底色 */
   .tab {
-    border-radius: 0 !important;
     flex: 0 0 auto; max-width: 140px;
-    font-size: 11px; line-height: 16px; color: var(--muted);
-    background: transparent; border: 1px solid var(--line); border-radius: 6px;
-    padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 12px; line-height: 18px; color: var(--tertiary);
+    background: transparent; border: none; border-radius: 8px;
+    padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .tab.active { color: var(--accent); border-color: var(--accent); background: var(--hover); }
+  .tab.active { color: var(--fg); background: var(--hover); font-weight: 500; }
 
   /* 消息列表：填满剩余高度并滚动，样式对齐聊天记录 */
   #list {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overscroll-behavior: contain;
-    border-top: 1px solid var(--line); margin-top: 2px;
+    border-top: 0.5px solid var(--line-soft); margin-top: 2px;
   }
   #list::-webkit-scrollbar { width: 4px; }
   #list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.24); }
@@ -405,7 +407,7 @@
     height: 36px; margin: 6px 0 0; padding: 0 8px 0 10px;
     border-radius: 12px;
     background: var(--field);
-    border: 1px solid var(--line);
+    border: 0.5px solid var(--line-soft);
   }
   #goalbar[hidden] { display: none; }
   #goalbar .gglyph { display: inline-flex; flex: none; color: var(--muted); }
@@ -489,7 +491,7 @@
     flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px;
     margin-top: 8px; padding: 8px 0 0;
     background: var(--field);
-    border: 1px solid var(--line);
+    border: 0.5px solid var(--line-soft);
     border-radius: 8px;
     font-size: var(--fs-content);
     line-height: var(--lh-content);
