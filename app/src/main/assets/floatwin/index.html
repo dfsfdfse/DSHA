@@ -112,21 +112,49 @@
     font-size: 12px; padding: 0; line-height: 1;
   }
 
-  /* 上下文用量：一行概览，点开看三段明细 */
+
+  /* 上下文用量：底部一行概览，点开是参考 dsh 的卡片（分段条 + 三段明细） */
   #usage {
     flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
-    margin-top: 6px; padding: 4px 2px 0; color: var(--muted); font-size: 11px;
+    padding: 4px 2px 0; color: var(--muted); font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
   #usage[hidden] { display: none; }
   #usage-meter { flex: 1 1 auto; height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; }
-  #usage-fill { display: block; height: 100%; width: 0; background: var(--accent); }
-  #usage-text { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-  #usage-detail { flex: 0 0 auto; padding: 6px 2px 0; font-size: 11px; color: var(--muted); }
-  #usage-detail[hidden] { display: none; }
-  .urow { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-  .urow i { width: 6px; height: 6px; border-radius: 1px; background: var(--accent); }
-  .urow i.sys { background: #9aa4b2; } .urow i.tools { background: #b48cff; }
-  .urow span { flex: 1 1 auto; } .urow b { font-weight: 500; color: var(--fg); }
+  #usage-fill { display: block; height: 100%; width: 0; background: #4c8dff; }
+
+  /* 卡片：绝对定位浮在输入栏上方，样式对齐 dsh 的上下文弹层 */
+  #usage-card {
+    position: absolute; left: 8px; right: 8px; bottom: 46px; z-index: 5;
+    background: rgba(22, 26, 34, .97);
+    border: 1px solid rgba(255,255,255,.10); border-radius: 14px;
+    padding: 12px 14px 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  #usage-card[hidden] { display: none; }
+  .uhead { display: flex; align-items: baseline; gap: 8px; color: var(--fg); }
+  .uhead span { flex: 1 1 auto; font-size: 12px; color: var(--muted); }
+  .uhead b { font-size: 17px; font-weight: 600; color: var(--fg); }
+  .uhead em { font-style: normal; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ubar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin: 10px 0 12px; background: rgba(255,255,255,.08); }
+  .ubar i { display: block; height: 100%; }
+  .ubar .sys { background: #9aa4b2; } .ubar .tools { background: #b48cff; } .ubar .msg { background: #4c8dff; }
+  .urow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--muted); }
+  .urow i { width: 9px; height: 9px; border-radius: 2px; }
+  .urow i.sys { background: #9aa4b2; } .urow i.tools { background: #b48cff; } .urow i.msg { background: #4c8dff; }
+  .urow span { flex: 1 1 auto; }
+  .urow b { font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; }
+
+  /* 附件预览：圆角缩略图 + 右上角移除，参照 dsh 的附件卡片 */
+  #attach-bar { flex: 0 0 auto; display: flex; gap: 8px; padding-top: 6px; }
+  #attach-bar[hidden] { display: none; }
+  .thumb { position: relative; width: 54px; height: 54px; border-radius: 10px; overflow: hidden; background: rgba(255,255,255,.07); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb button {
+    position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border: none;
+    border-radius: 9px; background: rgba(0,0,0,.62); color: #fff; font-size: 12px;
+    line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
 
   /* 紧凑输入栏：+ 图片 / 输入 / 语音 / 发送 */
   #compose {
@@ -175,14 +203,21 @@
   </div>
   <div id="tabs" hidden></div>
   <div id="list"><div class="empty">等待消息…</div></div>
+  <div id="usage-card" hidden>
+    <div class="uhead">
+      <span>上下文已用</span><b id="u-pct">0%</b><em id="u-total">-</em>
+    </div>
+    <div class="ubar"><i class="sys" id="ub-sys"></i><i class="tools" id="ub-tools"></i><i class="msg" id="ub-msg"></i></div>
+    <div class="urow"><i class="sys"></i><span>系统提示词</span><b id="u-sys">-</b></div>
+    <div class="urow"><i class="tools"></i><span>工具定义</span><b id="u-tools">-</b></div>
+    <div class="urow"><i class="msg"></i><span>对话消息</span><b id="u-msg">-</b></div>
+  </div>
   <div id="usage" hidden>
     <span id="usage-text">上下文 0%</span>
     <span id="usage-meter"><span id="usage-fill"></span></span>
   </div>
-  <div id="usage-detail" hidden>
-    <div class="urow"><i class="sys"></i><span>系统提示词</span><b id="u-sys">-</b></div>
-    <div class="urow"><i class="tools"></i><span>工具定义</span><b id="u-tools">-</b></div>
-    <div class="urow"><i></i><span>对话消息</span><b id="u-msg">-</b></div>
+  <div id="attach-bar" hidden>
+    <div class="thumb"><img id="thumb-img" alt=""><button id="thumb-x">×</button></div>
   </div>
   <div id="compose">
     <button id="pick" title="图片">+</button>
@@ -233,19 +268,25 @@
   }
 
   function renderUsage(usage) {
-    const box = el('usage');
+    const line = el('usage');
     if (!usage || !Number.isFinite(usage.used) || !Number.isFinite(usage.window) || usage.window <= 0) {
-      box.hidden = true;
-      el('usage-detail').hidden = true;
+      line.hidden = true;
+      el('usage-card').hidden = true;
       return;
     }
     const pct = Math.min(100, Math.round((usage.used / usage.window) * 100));
     el('usage-text').textContent = '上下文 ' + pct + '% · ' + shortK(usage.used) + '/' + shortK(usage.window);
     el('usage-fill').style.width = pct + '%';
+    el('u-pct').textContent = pct + '%';
+    el('u-total').textContent = '~' + shortK(usage.used) + ' / ' + shortK(usage.window);
+    const total = Math.max(1, (usage.system || 0) + (usage.tools || 0) + (usage.messages || 0));
+    el('ub-sys').style.width = ((usage.system || 0) / total * 100) + '%';
+    el('ub-tools').style.width = ((usage.tools || 0) / total * 100) + '%';
+    el('ub-msg').style.width = ((usage.messages || 0) / total * 100) + '%';
     el('u-sys').textContent = '~' + shortK(usage.system);
     el('u-tools').textContent = '~' + shortK(usage.tools);
     el('u-msg').textContent = '~' + shortK(usage.messages);
-    box.hidden = false;
+    line.hidden = false;
   }
 
   window.dshFloat = {
@@ -275,9 +316,17 @@
       el('ask').placeholder = message || '没听清，再说一次';
       setTimeout(() => { el('ask').placeholder = '问点什么…'; }, 2600);
     },
-    onImage: function (path) {
+    onImage: function (path, dataUrl) {
       pendingImage = path || '';
-      el('ask').placeholder = pendingImage ? '图片已就绪，回车发送' : '问点什么…';
+      if (pendingImage) {
+        el('thumb-img').src = dataUrl || '';
+        el('attach-bar').hidden = false;
+        el('ask').placeholder = '图片已就绪，发送即带上';
+      } else {
+        el('attach-bar').hidden = true;
+        el('thumb-img').removeAttribute('src');
+        el('ask').placeholder = '问点什么…';
+      }
       post('focus', { value: true });
     },
     onData: function (json) {
@@ -410,6 +459,8 @@
     if (!typed && !image) return;
     const text = image ? (typed ? typed + '\n[图片] ' + image : '[图片] ' + image) : typed;
     pendingImage = '';
+    el('attach-bar').hidden = true;
+    el('thumb-img').removeAttribute('src');
     el('ask').placeholder = '问点什么…';
     const task = activeTask();
     ask.value = '';
@@ -444,8 +495,15 @@
   el('pick').addEventListener('click', e => { e.stopPropagation(); post('pickImage', {}); });
   el('usage').addEventListener('click', e => {
     e.stopPropagation();
-    const detail = el('usage-detail');
-    detail.hidden = !detail.hidden;
+    const card = el('usage-card');
+    card.hidden = !card.hidden;
+  });
+  el('thumb-x').addEventListener('click', e => {
+    e.stopPropagation();
+    pendingImage = '';
+    el('attach-bar').hidden = true;
+    el('thumb-img').removeAttribute('src');
+    el('ask').placeholder = '问点什么…';
   });
   ask.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); sendText(); }

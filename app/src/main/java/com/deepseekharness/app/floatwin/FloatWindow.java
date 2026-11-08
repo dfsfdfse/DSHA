@@ -848,9 +848,27 @@ public final class FloatWindow {
         int n;
         while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
       }
+      String dataUrl = "";
+      if (target.length() > 0 && target.length() <= 1800000L) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(target)) {
+          byte[] bytes = new byte[(int) target.length()];
+          int read = 0;
+          while (read < bytes.length) {
+            int step = in.read(bytes, read, bytes.length - read);
+            if (step <= 0) break;
+            read += step;
+          }
+          dataUrl =
+              "data:image/jpeg;base64,"
+                  + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+        } catch (Throwable ignored) {
+        }
+      }
       evaluate(
           "window.dshFloat&&window.dshFloat.onImage("
               + JSONObject.quote("/root/.dsh/float-attach/" + target.getName())
+              + ","
+              + JSONObject.quote(dataUrl)
               + ")");
     } catch (Throwable ignored) {
     }
