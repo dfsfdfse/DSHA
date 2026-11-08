@@ -247,6 +247,7 @@ async function sendFloat(key, b) {
         steps: s.steps || 0,
         total: usage?.total || 0,
         cacheHit: usage?.cacheHit ?? null,
+        tps: s.genMs > 0 && s.outTokens > 0 ? Math.round(s.outTokens / (s.genMs / 1000)) : 0,
       },
     })
   }
@@ -560,6 +561,7 @@ function usageOf(session) {
     // 累计用量与缓存命中率：dsh 底部那行「277M tok · 缓存命中 99.7%」
     let total = 0
     let cacheHit = null
+    const outTokens = totals ? (Number(totals.outputTokens) || 0) : 0
     if (totals) {
       const read = Number(totals.cacheReadTokens) || 0
       total = (Number(totals.uncachedInputTokens) || 0) + (Number(totals.outputTokens) || 0)
@@ -578,6 +580,7 @@ function usageOf(session) {
       messages: Number(breakdown?.messageTokens) || 0,
       total,
       cacheHit,
+      outTokens,
     }
   } catch {
     return null
@@ -649,6 +652,7 @@ function publishFloat(activeKey) {
         steps: s.steps || 0,
         total: usage?.total || 0,
         cacheHit: usage?.cacheHit ?? null,
+        tps: s.genMs > 0 && s.outTokens > 0 ? Math.round(s.outTokens / (s.genMs / 1000)) : 0,
       },
     })
   }
@@ -889,6 +893,27 @@ export function apply(ctx) {
         return
       }
 
+      if (type === 'tool/result') {
+        const b = bucket(key)
+        let row = null
+        for (let i = b.messages.length - 1; i >= 0; i--) {
+          const m = b.messages[i]
+          if (m.kind === 'tool' && m.failed === undefined) { row = m; break }
+        }
+        if (!row) return
+        let code = null
+        try {
+          const text = JSON.stringify(data?.message?.content ?? data?.content ?? '')
+          const hit = /(?:exit code|退出码)[:：\s]*(\d+)/i.exec(text)
+          if (hit) code = Number(hit[1])
+        } catch { }
+        row.failed = !!data?.error || (code !== null && code !== 0)
+        if (code !== null) row.code = code
+        b.updated = Date.now()
+        scheduleFloat(key, b)
+        return
+      }
+
       if (type === 'turn/start') {
         const b = bucket(key)
         b.session = session
@@ -930,6 +955,18 @@ export function apply(ctx) {
         // dsh 会在这一轮结束时写「已完成，用时 …」，悬浮窗也留一行，方便回看花了多久
         const spent = b.turnStart ? Date.now() - b.turnStart : 0
         b.turnStart = 0
+        // tok/s：本轮输出 token 的增量 ÷ 本轮耗时（跨轮累加后取平均，和 dsh 的读数口径接近）
+        try {
+          const u = usageOf(session)
+          if (u && Number.isFinite(u.outTokens)) {
+            const delta = Math.max(0, u.outTokens - (b.lastOut || 0))
+            b.lastOut = u.outTokens
+            if (delta > 0 && spent > 0) {
+              b.outTokens = (b.outTokens || 0) + delta
+              b.genMs = (b.genMs || 0) + spent
+            }
+          }
+        } catch { }
         if (spent >= 1000) {
           b.messages.push({ kind: 'note', title: '已完成', text: '已完成，用时 ' + duration(spent), at: Date.now() })
           if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)

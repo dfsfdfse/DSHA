@@ -256,6 +256,16 @@
   .msg.step .msg-title { -webkit-line-clamp: 1; font-size: 12.5px; line-height: 18px; }
   .msg.step .msg-time { font-size: 10.5px; margin-top: 0; }
   .step-ico { flex: 0 0 14px; width: 14px; height: 14px; color: var(--tertiary); margin-top: 2px; }
+  /* 工具失败的徽标：dsh 轨迹行右侧的小 pill（• 退出码 1） */
+  .step-err {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    height: 18px; padding: 0 7px; border-radius: 9px;
+    background: rgba(255, 107, 94, .12); color: var(--danger);
+    font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums;
+  }
+  .step-err::before {
+    content: ''; width: 4px; height: 4px; border-radius: 2px; background: var(--danger);
+  }
   .step-ico svg { width: 14px; height: 14px; display: block; }
   /* 过程组里的步骤只留一行标题，正文（参数原文）不重复铺开 */
   .process-body .msg-body { display: none !important; }
@@ -1184,7 +1194,8 @@
       if (st && !hideStats && (st.turns || st.steps || st.total)) {
         el('st-ico-left').innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6"/><path d="M8 2v3"/></svg>';
         el('st-ico-right').innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><ellipse cx="8" cy="4.5" rx="5.5" ry="2"/><path d="M2.5 4.5v7c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-7"/></svg>';
-        el('st-left').textContent = (st.turns || 0) + ' 轮 ' + (st.steps || 0) + ' 步';
+        el('st-left').textContent = (st.turns || 0) + ' 轮 ' + (st.steps || 0) + ' 步'
+          + (st.tps ? ' · ' + st.tps + ' tok/s' : '');
         const parts = [];
         if (st.total) parts.push(shortK(st.total) + ' tok');
         if (st.cacheHit != null) parts.push('缓存命中 ' + st.cacheHit + '%');
@@ -1397,13 +1408,21 @@
       const first = String(m.text || '').trim().split('\n')[0];
       title.textContent = first ? withCount + ' · ' + first : withCount;
     }
+    let errBadge = null;
+    if (isStep && (m.failed || m.code !== undefined)) {
+      errBadge = document.createElement('span');
+      errBadge.className = 'step-err';
+      errBadge.textContent = m.code !== undefined ? '退出码 ' + m.code : '失败';
+    }
     const chev = document.createElement('span');
     chev.className = 'msg-chev';
     chev.innerHTML = CHEV_SVG;
     const time = document.createElement('span');
     time.className = 'msg-time';
     time.textContent = formatTime(m.at);
-    head.append(isStep ? icon : badge, title, time, chev);
+    head.append(isStep ? icon : badge, title);
+    if (errBadge) head.append(errBadge);
+    head.append(time, chev);
 
     const body = document.createElement('div');
     body.className = 'msg-body';
