@@ -1668,11 +1668,57 @@
     else if (stick && think.live) clip.scrollTop = clip.scrollHeight;
   }
 
+  // ── 流式打字：数据一帧帧到（约 0.1 秒一批），这里按字逐步揭示，不是整段跳出 ──
+  const typing = new Map();
+  let typeRaf = 0;
+  /** 返回此刻该显示的前缀；live 时新增的部分逐帧补齐。 */
+  function typed(key, full, live) {
+    full = String(full || '');
+    let t = typing.get(key);
+    if (!t) {
+      t = { text: full, shown: live ? Math.max(0, full.length - 24) : full.length };
+      typing.set(key, t);
+      if (typing.size > 24) typing.delete(typing.keys().next().value);
+    } else if (!live || !full.startsWith(t.text.slice(0, t.shown))) {
+      t.shown = full.length;  // 写完了、或文本被替换（截断/换会话）：直接整段
+    }
+    t.text = full;
+    if (t.shown > full.length) t.shown = full.length;
+    if (t.shown < full.length && !typeRaf) typeRaf = requestAnimationFrame(typeTick);
+    return full.slice(0, t.shown);
+  }
+  function typeTick() {
+    typeRaf = 0;
+    let more = false;
+    for (const t of typing.values()) {
+      if (t.shown >= t.text.length) continue;
+      const rest = t.text.length - t.shown;
+      // 落后越多走得越快：平时约 1–3 字/帧，积压时 ~12 帧内追平
+      t.shown = Math.min(t.text.length, t.shown + Math.max(1, Math.ceil(rest / 12)));
+      if (t.shown < t.text.length) more = true;
+    }
+    const task = currentTask();
+    if (tier === 1) {
+      renderTail(task);
+      postFit();
+    } else {
+      const node = document.getElementById('m-live');
+      const t = node && typing.get(node.dataset.k);
+      if (node && t) {
+        const list = el('mlist');
+        const stick = list.scrollTop + list.clientHeight >= list.scrollHeight - 12;
+        node.innerHTML = formatBody(t.text.slice(0, t.shown));
+        if (stick) list.scrollTop = list.scrollHeight;
+      }
+    }
+    if (more) typeRaf = requestAnimationFrame(typeTick);
+  }
+
   function renderTail(task) {
     const box = el('tail');
     const text = el('tail-text');
     const live = !!(task && !task.done);
-    const answer = selectedId === 'new' ? '' : answerOf(task);
+    const answer = typed('tail:' + currentId(), selectedId === 'new' ? '' : answerOf(task), live);
     const open = box.classList.contains('open');
     const sig = currentId() + '|' + answer.length + '|' + (open ? 1 : 0);
     if (sig !== tailSig) {
@@ -1723,7 +1769,12 @@
       if (m.kind === 'user') {
         html += '<div class="m-user"><div>' + escapeHtml(m.text || m.title || '') + '</div></div>';
       } else if (m.kind === 'assistant') {
-        html += '<div class="m-text' + sub + '">' + formatBody(m.text || m.title || '') + '</div>';
+        if (m.live && task && !task.done) {
+          const k = 'list:' + currentId() + ':' + (m.at || 0) + ':' + (m.depth || 0);
+          html += '<div class="m-text' + sub + '" id="m-live" data-k="' + escapeHtml(k) + '">' + formatBody(typed(k, m.text || '', true)) + '</div>';
+        } else {
+          html += '<div class="m-text' + sub + '">' + formatBody(m.text || m.title || '') + '</div>';
+        }
       } else if (m.kind === 'think' || m.kind === 'tool') {
         const key = stepKey(m);
         const open = openSteps.has(key);

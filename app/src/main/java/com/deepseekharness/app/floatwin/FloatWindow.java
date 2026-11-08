@@ -157,7 +157,9 @@ public final class FloatWindow {
       if (watchCtx != null) pollVoiceResult(watchCtx);
     } catch (Throwable ignored) {
     }
-    if (watching) main.postDelayed(FloatWindow::pollOnce, 900);
+    // 流式输出时文件约 0.1 秒变一次：最近 4 秒有变化就 100ms 轮询（只 stat，不变不读），平时 700ms
+    long idle = System.currentTimeMillis() - lastGuestChange;
+    if (watching) main.postDelayed(FloatWindow::pollOnce, web != null && idle < 4000 ? 100 : 700);
   }
 
   /** dsh 一起好就把真实页面塞进悬浮窗 —— 输入栏、附件、模型、语音都是原生的。 */
@@ -312,6 +314,8 @@ public final class FloatWindow {
         });
   }
 
+  private static long lastGuestChange;
+
   private static void pollGuest() {
     Context ctx = watchCtx;
     if (ctx == null) return;
@@ -320,8 +324,9 @@ public final class FloatWindow {
     if (!com.deepseekharness.app.OverlayController.permitted(ctx)) return;
     File state = guestFile(ctx, GUEST_STATE);
     if (state == null || !state.isFile()) return;
-    long stamp = state.lastModified() * 1000L + Math.min(state.length(), 999);
+    long stamp = state.lastModified() * 1_000_003L + state.length();
     if (stamp == stateStamp) return;
+    lastGuestChange = System.currentTimeMillis();
     String json = readText(state);
     if (json == null || json.isEmpty()) return;
     if (json.contains("\"clear\"") && json.contains("true")) {
@@ -345,7 +350,7 @@ public final class FloatWindow {
     String json = state != null && state.isFile() ? readText(state) : null;
     if (json != null && !json.isEmpty() && !json.contains("\"clear\"")) {
       pendingPayload = json;
-      stateStamp = state.lastModified() * 1000L + Math.min(state.length(), 999);
+      stateStamp = state.lastModified() * 1_000_003L + state.length();
     } else {
       pendingPayload = "{\"tasks\":[]}";
     }

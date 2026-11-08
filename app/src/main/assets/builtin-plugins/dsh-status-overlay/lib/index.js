@@ -226,13 +226,13 @@ async function send(key, kind, text) {
   }
 }
 
-/** 把会话的「状态 + 步骤」发给富内容悬浮窗；200ms 合帧，避免逐 token 布局。 */
+/** 把会话的「状态 + 步骤」发给富内容悬浮窗；80ms 合帧（流式够跟手，又不至于逐 token 写盘）。 */
 function scheduleFloat(key, b) {
   if (b.ftimer) return
   b.ftimer = setTimeout(() => {
     b.ftimer = undefined
     void sendFloat(key, b)
-  }, 200)
+  }, 80)
   if (typeof b.ftimer?.unref === 'function') b.ftimer.unref()
 }
 
