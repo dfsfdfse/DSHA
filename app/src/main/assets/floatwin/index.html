@@ -457,7 +457,7 @@
     const typed = (ask.value || '').trim();
     const image = pendingImage;
     if (!typed && !image) return;
-    const text = image ? (typed ? typed + '\n[图片] ' + image : '[图片] ' + image) : typed;
+    const text = typed;
     pendingImage = '';
     el('attach-bar').hidden = true;
     el('thumb-img').removeAttribute('src');
@@ -466,7 +466,7 @@
     ask.value = '';
     ask.blur();
     post('focus', { value: false });
-    post('send', { text, session: task ? task.id : '' });
+    post('send', { text, image, session: task ? task.id : '' });
     // 本地回显，等下一次真实数据到达时整块重绘
     const list = el('list');
     const empty = list.querySelector('.empty');

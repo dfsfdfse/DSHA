@@ -165,12 +165,9 @@ public final class FloatWindow {
       userClosed = false;
       return;
     }
-    if (!url.equals(lastWebUrl)) {
-      lastWebUrl = url;
-      userClosed = false;
-    }
-    if (web != null || userClosed) return;
-    showRealPage(ctx);
+    if (!url.equals(lastWebUrl)) lastWebUrl = url;
+    // 只在用户点入口时打开；dsh 回答不再自动弹窗。
+    if (web != null) return;
   }
 
   private static String webUrl(Context ctx) {
@@ -234,6 +231,7 @@ public final class FloatWindow {
       return;
     }
     stateStamp = stamp;
+    if (web == null) return;  // 只有窗口已经打开时才更新；不再自动弹
     feed(ctx, json);
   }
 
@@ -249,7 +247,7 @@ public final class FloatWindow {
   }
 
   /** 写入一条要发给 agent 的消息，插件轮询该文件并投递到会话。 */
-  private static void writeInbox(Context ctx, String session, String text) {
+  private static void writeInbox(Context ctx, String session, String text, String image) {
     try {
       File inbox = guestFile(ctx, GUEST_INBOX);
       if (inbox == null) return;
@@ -257,7 +255,8 @@ public final class FloatWindow {
           new JSONObject()
               .put("seq", System.currentTimeMillis())
               .put("session", session == null ? "" : session)
-              .put("text", text == null ? "" : text);
+              .put("text", text == null ? "" : text)
+              .put("image", image == null ? "" : image);
       File dir = inbox.getParentFile();
       if (dir != null) dir.mkdirs();
       File tmp = new File(inbox.getPath() + ".tmp");
@@ -657,7 +656,12 @@ public final class FloatWindow {
         }
         case "send": {
           Context ctx = web == null ? null : web.getContext();
-          if (ctx != null) writeInbox(ctx, p.optString("session", ""), p.optString("text", ""));
+          if (ctx != null)
+            writeInbox(
+                ctx,
+                p.optString("session", ""),
+                p.optString("text", ""),
+                p.optString("image", ""));
           return;
         }
         case "focus": {

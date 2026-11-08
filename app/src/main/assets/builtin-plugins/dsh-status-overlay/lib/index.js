@@ -554,6 +554,7 @@ function startVoice(ctx) {
 /** 悬浮窗里的输入框 → 会话：宿主把文本写进 FLOAT_INBOX，这里轮询并投递。 */
 function startInbox(ctx) {
   let agents
+  let attachments
   let lastSeq = 0
   try {
     const seed = JSON.parse(readFileSync(FLOAT_INBOX, 'utf8'))
@@ -562,6 +563,10 @@ function startInbox(ctx) {
   ctx.inject(['agents'], scoped => {
     agents = scoped.agents
     return () => { agents = undefined }
+  })
+  ctx.inject(['attachments'], scoped => {
+    attachments = scoped.attachments
+    return () => { attachments = undefined }
   })
   const drain = async () => {
     try {
@@ -575,10 +580,30 @@ function startInbox(ctx) {
       const agent = agents.get(String(msg.session || ''))
       if (!agent) return
       const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
-      agent.followup(createUserMessage({
-        content: [{ type: 'text', text: text.slice(0, 8000) }],
-        source: { kind: 'user' },
-      }))
+      const parts = []
+      if (text.trim()) parts.push({ type: 'text', text: text.slice(0, 8000) })
+      const image = typeof msg.image === 'string' ? msg.image : ''
+      if (image && attachments) {
+        try {
+          const bytes = readFileSync(image)
+          const mediaType = /\.png$/i.test(image)
+            ? 'image/png'
+            : /\.webp$/i.test(image)
+              ? 'image/webp'
+              : /\.gif$/i.test(image)
+                ? 'image/gif'
+                : 'image/jpeg'
+          parts.push({
+            type: 'image',
+            data: bytes.toString('base64'),
+            mediaType,
+            name: image.split('/').pop(),
+          })
+        } catch { /* 图片读不到就只发文字 */ }
+      }
+      if (!parts.length) return
+      const content = attachments ? await attachments.admitPromptContent(parts) : parts
+      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
     } catch { /* 投递失败不能影响 agent 主链路 */ }
   }
   const timer = setInterval(() => { void drain() }, 400)
