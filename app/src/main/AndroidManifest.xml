@@ -152,6 +152,12 @@
             android:theme="@style/Theme.DeepseekHarness" />
 
         <activity
+            android:name=".floatwin.FloatPickerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
             android:name=".ui.ExtractActivity"
             android:exported="false"
             android:theme="@style/Theme.DeepseekHarness" />

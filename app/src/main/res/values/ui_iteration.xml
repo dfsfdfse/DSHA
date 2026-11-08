@@ -2,7 +2,7 @@
 <resources>
     <string name="ui2_stopped">DSH 未运行</string>
     <string name="ui2_launch_hint">随时开始你的下一项任务。</string>
-    <string name="ui2_start">▶  启动 DSHA</string>
+    <string name="ui2_start">▶  启动 DSH</string>
     <string name="ui2_restart">↻  重启</string>
     <string name="ui2_stop">□  停止</string>
     <string name="ui2_port">实际 Web 端口</string>
@@ -146,4 +146,5 @@
     <string name="ui2_storage_files">存储与文件</string>
     <string name="ui2_storage_files_sub">空间占用、缓存清理和文件共享</string>
     <string name="ui2_recovery_tools">环境修复与数据救援</string>
+    <string name="ui2_float">悬浮窗</string>
 </resources>

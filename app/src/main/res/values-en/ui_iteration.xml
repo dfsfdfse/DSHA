@@ -2,7 +2,7 @@
 <resources>
     <string name="ui2_stopped">DSH is not running</string>
     <string name="ui2_launch_hint">Ready for your next task.</string>
-    <string name="ui2_start">▶  Start DSHA</string>
+    <string name="ui2_start">▶  Start DSH</string>
     <string name="ui2_restart">↻  Restart</string>
     <string name="ui2_stop">□  Stop</string>
     <string name="ui2_port">Active Web port</string>
@@ -146,4 +146,5 @@
     <string name="ui2_storage_files">Storage and files</string>
     <string name="ui2_storage_files_sub">Storage usage, cache cleanup and file sharing</string>
     <string name="ui2_recovery_tools">Environment and data recovery</string>
+    <string name="ui2_float">Floating window</string>
 </resources>

@@ -16,7 +16,7 @@
     --ok: #46c37b;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: transparent; }
+  html, body { margin: 0; height: 100%; background: transparent; }
   body {
     font: 13px/1.5 -apple-system, "system-ui", "Segoe UI", Roboto, sans-serif;
     color: var(--fg);
@@ -24,89 +24,113 @@
     -webkit-tap-highlight-color: transparent;
   }
   #card {
+    position: relative;
+    height: 100%;
+    display: flex; flex-direction: column;
     background: rgba(var(--bg-rgb), var(--alpha));
     border: 1px solid var(--line);
     border-radius: 0;
-    padding: 0 12px 8px;
+    padding: 8px 12px 8px;
     overflow: hidden;
   }
-  /* 顶部 76px 是原生拖动带：只显示，不接收点击 */
-  #head { height: 76px; padding-top: 7px; overflow: hidden; }
-  #titleRow { display: flex; align-items: center; gap: 6px; height: 15px; }
+  /* 唯一的拖动区：与原生触摸带等高 */
+  #head {
+    height: 22px;
+    display: flex; align-items: center; gap: 6px;
+    overflow: hidden;
+  }
   #dot { width: 6px; height: 6px; background: var(--accent); flex: 0 0 auto; }
   #title {
-    font-size: 11px; color: var(--muted); flex: 0 0 auto; max-width: 60%;
+    font-size: 11.5px; color: var(--muted); flex: 0 1 auto; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   #count {
-    font-size: 10px; color: var(--muted); background: rgba(255,255,255,.07);
-    padding: 0 5px; flex: 0 0 auto;
+    font-size: 10px; color: var(--muted); flex: 0 0 auto;
+    border-left: 1px solid var(--line); padding-left: 6px;
   }
-  #status {
-    margin-top: 3px;
-    font-size: 14px; line-height: 19px; color: var(--fg);
-    white-space: normal; word-break: break-word;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  /* 多任务标签：可横向滚动，左右切换 */
+  #count[hidden] { display: none; }
+
   #tabs {
     display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
-    padding: 2px 0 6px; scrollbar-width: none;
+    margin: 4px 0 6px; padding-bottom: 2px; scrollbar-width: none;
   }
   #tabs::-webkit-scrollbar { display: none; }
   #tabs[hidden] { display: none; }
   .tab {
-    flex: 0 0 auto; max-width: 132px;
-    font-size: 11px; line-height: 18px; color: var(--muted);
-    background: rgba(255,255,255,.06);
-    border: 1px solid transparent;
-    padding: 2px 9px;
+    flex: 0 0 auto; max-width: 140px;
+    font-size: 11px; line-height: 16px; color: var(--muted);
+    background: transparent; border: 1px solid var(--line); border-radius: 999px;
+    padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tab.active { color: #cfe0ff; border-color: rgba(122,162,255,.65); background: rgba(122,162,255,.16); }
+
+  /* 消息列表：填满剩余高度并滚动，样式对齐聊天记录 */
+  #list {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    border-top: 1px solid var(--line); margin-top: 2px;
+  }
+  #list::-webkit-scrollbar { width: 4px; }
+  #list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.24); }
+  #list::-webkit-scrollbar-track { background: transparent; }
+  .empty { color: var(--muted); font-size: 12px; padding: 10px 0; }
+
+  .msg { border-bottom: 1px solid rgba(255,255,255,.05); }
+  .msg:last-child { border-bottom: none; }
+  .msg-head {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 7px 0 7px 2px; cursor: pointer;
+  }
+  .badge {
+    flex: 0 0 auto; width: 4px; height: 4px; margin-top: 7px;
+    background: var(--accent);
+  }
+  .msg.tool .badge { background: #ffcf7a; }
+  .msg-title {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 12.5px; line-height: 18px; color: var(--fg);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .tab.active { color: var(--fg); border-color: rgba(122,162,255,.55); background: rgba(122,162,255,.14); }
-  #scroll {
-    max-height: 0; overflow: hidden;
-    transition: max-height .18s ease;
-  }
-  #card.expanded #scroll {
-    max-height: 268px; overflow-y: auto; overscroll-behavior: contain;
-    margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--line);
-  }
-  /* 内容区滚动条：细、始终可见 */
-  #scroll::-webkit-scrollbar { width: 4px; }
-  #scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); }
-  #scroll::-webkit-scrollbar-track { background: transparent; }
-  #full {
-    font-size: 12.5px; line-height: 18px; color: var(--fg);
+  .msg.open .msg-title { white-space: normal; }
+  .msg-body {
+    max-height: 0; overflow: hidden; transition: max-height .16s ease;
+    font-size: 12px; line-height: 18px; color: var(--muted);
     white-space: pre-wrap; word-break: break-word;
-    margin-bottom: 6px;
+    padding-left: 12px;
   }
-  #full[hidden] { display: none; }
-  #detail {
-    font-size: 11.5px; color: var(--muted); line-height: 16px;
-    white-space: pre-wrap; word-break: break-word; margin-bottom: 4px;
-  }
-  #detail[hidden] { display: none; }
-  #steps { list-style: none; margin: 0; padding: 0 0 0 2px; }
-  #steps li {
-    font-size: 11.5px; color: var(--muted); line-height: 1.5;
-    padding: 2px 0 2px 10px; position: relative; word-break: break-word;
-  }
-  #steps li::before {
-    content: ""; position: absolute; left: 0; top: 9px;
-    width: 3px; height: 3px; background: var(--line);
-  }
-  #steps li:last-child { color: var(--fg); }
+  .msg.open .msg-body { max-height: 45vh; overflow-y: auto; padding-bottom: 8px; }
+  .msg-body::-webkit-scrollbar { width: 3px; }
+  .msg-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); }
+
   #foot {
-    display: flex; align-items: center; justify-content: flex-end;
-    gap: 14px; margin-top: 6px; color: var(--muted);
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: flex-start;
+    gap: 16px; margin-top: 6px; color: var(--muted);
   }
   #foot button {
     border: none; background: transparent; color: var(--muted);
-    font-size: 12px; padding: 2px; line-height: 1;
+    font-size: 12px; padding: 0; line-height: 1;
   }
-  #actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  /* 悬浮窗里的问答框：直接向当前会话提问 */
+  #compose {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
+  }
+  #ask {
+    flex: 1 1 auto; min-width: 0;
+    background: rgba(255,255,255,.06); border: 1px solid var(--line);
+    color: var(--fg); font-size: 12px; padding: 6px 10px; border-radius: 999px;
+    outline: none;
+  }
+  #ask::placeholder { color: var(--muted); }
+  #send {
+    flex: 0 0 auto; border: none; border-radius: 999px;
+    padding: 6px 12px; font-size: 12px; font-weight: 600;
+    background: rgba(122,162,255,.92); color: #0b1020;
+  }
+  #send:disabled { opacity: .4; }
+  #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
     flex: 1 1 auto; font-size: 11px; color: #ffcf7a; align-self: center;
@@ -115,23 +139,26 @@
   button.act { border: none; padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fff; }
   #deny { background: rgba(255, 107, 94, .18); color: var(--danger); }
   #allow { background: var(--ok); }
+  /* 右下角缩放标识：仅提示，实际拖拽由原生触摸层完成 */
+  #grip {
+    position: absolute; right: 3px; bottom: 3px; width: 12px; height: 12px;
+    pointer-events: none; opacity: .5;
+    border-right: 1px solid var(--muted); border-bottom: 1px solid var(--muted);
+  }
 </style>
 </head>
 <body>
 <div id="card">
   <div id="head">
-    <div id="titleRow">
-      <span id="dot"></span>
-      <span id="title">RCHA</span>
-      <span id="count" hidden></span>
-    </div>
-    <div id="status">就绪</div>
+    <span id="dot"></span>
+    <span id="title">RCHA</span>
+    <span id="count" hidden></span>
   </div>
   <div id="tabs" hidden></div>
-  <div id="scroll">
-    <div id="full" hidden></div>
-    <div id="detail" hidden></div>
-    <ul id="steps"></ul>
+  <div id="list"><div class="empty">等待消息…</div></div>
+  <div id="compose">
+    <input id="ask" type="text" placeholder="问点什么…" autocomplete="off" />
+    <button id="send">发送</button>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
@@ -140,9 +167,9 @@
   </div>
   <div id="foot">
     <button id="open">打开</button>
-    <button id="chevron">展开 ▾</button>
-    <button id="close">收起</button>
+    <button id="close">关闭</button>
   </div>
+  <div id="grip"></div>
 </div>
 <script>
 (function () {
@@ -150,24 +177,33 @@
     try { DshaFloat.postMessage(JSON.stringify({ method, params: params || {} })); } catch (_) {}
   };
   const el = id => document.getElementById(id);
-  let expanded = false;
   let state = { tasks: [], active: '' };
-  let tabSignature = '';
+  let signature = '';
+  let openId = '';
+  let busy = false;
 
   function activeTask() {
     if (!state.tasks.length) return null;
     return state.tasks.find(t => t.id === state.active) || state.tasks[0];
   }
 
-  function applyExpand() {
-    el('card').classList.toggle('expanded', expanded);
-    el('chevron').textContent = expanded ? '收起 ▴' : '展开 ▾';
-    post('expanded', { value: expanded });
-    post('resize', {});
+  function syncBusy(nextBusy) {
+    if (nextBusy === busy) return;
+    busy = nextBusy;
+    post('busy', { value: busy });
   }
 
   window.dshFloat = {
-    toggle: function () { expanded = !expanded; applyExpand(); post('activity', {}); },
+    toggle: function () {
+      // 轻点拖动条：展开/收起最新一条消息
+      const msgs = document.querySelectorAll('#list .msg');
+      if (!msgs.length) return;
+      const last = msgs[msgs.length - 1];
+      last.classList.toggle('open');
+      openId = last.classList.contains('open') ? last.dataset.id : '';
+      post('activity', {});
+      post('resize', {});
+    },
     onData: function (json) {
       let d = json;
       if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }
@@ -185,30 +221,27 @@
       if (typeof v.alpha === 'number') {
         document.documentElement.style.setProperty('--alpha', String(Math.max(0.2, Math.min(1, v.alpha / 100))));
       }
-
-      // 兼容旧载荷：没有 tasks 时把顶层字段当成单任务。
       if (!Array.isArray(v.tasks) || !v.tasks.length) {
-        v.tasks = [{
-          id: 'default', title: v.title || '',
-          status: v.status || '就绪', detail: v.detail || '',
-          steps: Array.isArray(v.steps) ? v.steps : [],
-        }];
-        v.active = 'default';
+        el('list').innerHTML = '<div class="empty">等待消息…</div>';
+        el('tabs').hidden = true;
+        el('title').textContent = 'RCHA';
+        el('count').hidden = true;
+        return;
       }
       state = { tasks: v.tasks.slice(0, 8), active: v.active || v.tasks[0].id };
+      syncBusy(state.tasks.some(t => !t.done));
 
       const task = activeTask();
       if (!task) return;
       el('title').textContent = task.title || 'RCHA';
       const count = state.tasks.length;
-      if (count > 1) { el('count').textContent = count + ' 个任务'; el('count').hidden = false; }
-      else el('count').hidden = true;
-      el('status').textContent = task.status || '就绪';
+      el('count').textContent = count > 1 ? count + ' 个任务' : '';
+      el('count').hidden = count <= 1;
 
-      // 标签：只有多任务时出现，按 id 集合判断是否需要重建。
-      const signature = state.tasks.map(t => t.id).join('|') + '#' + state.active;
-      if (signature !== tabSignature) {
-        tabSignature = signature;
+      // 标签只按会话集合重建
+      const tabSig = state.tasks.map(t => t.id).join('|') + '#' + state.active;
+      if (tabSig !== signature) {
+        signature = tabSig;
         const tabs = el('tabs');
         tabs.textContent = '';
         tabs.hidden = count <= 1;
@@ -219,34 +252,65 @@
           b.addEventListener('click', e => {
             e.stopPropagation();
             state.active = t.id;
-            tabSignature = '';
+            signature = '';
+            openId = '';
             render(state);
             post('activity', {});
           });
           tabs.appendChild(b);
         }
-        const selected = tabs.querySelector('.tab.active');
-        if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      } else {
-        const tabs = el('tabs');
-        for (const b of tabs.children) {
-          const match = state.tasks.find(t => t.id === state.active);
-          b.classList.toggle('active', match && b.textContent === (match.title || match.id.slice(-4)));
-        }
       }
 
-      // 展开区：完整文本 + 细节 + 步骤，统一放在可滚动容器里。
-      el('full').textContent = task.status || '';
-      el('full').hidden = !expanded || !task.status;
-      if (task.detail) { el('detail').textContent = task.detail; el('detail').hidden = false; }
-      else el('detail').hidden = true;
+      // 消息列表：按 id 集合重建，展开状态保留
+      const msgs = Array.isArray(task.messages) ? task.messages : [];
+      const listSig = task.id + '#' + msgs.map(m => (m.at || 0) + (m.title || '')).join('|');
+      const list = el('list');
+      if (listSig !== list.dataset.sig) {
+        list.dataset.sig = listSig;
+        list.textContent = '';
+        if (!msgs.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = '等待消息…';
+          list.appendChild(empty);
+        }
+        msgs.forEach((m, i) => {
+          const item = document.createElement('div');
+          item.className = 'msg ' + (m.kind === 'tool' ? 'tool' : 'assistant');
+          item.dataset.id = task.id + ':' + i;
+          if (item.dataset.id === openId) item.classList.add('open');
 
-      const list = el('steps');
-      list.textContent = '';
-      for (const step of (task.steps || []).slice(-16)) {
-        const li = document.createElement('li');
-        li.textContent = String(step);
-        list.appendChild(li);
+          const head = document.createElement('div');
+          head.className = 'msg-head';
+          const badge = document.createElement('span');
+          badge.className = 'badge';
+          const title = document.createElement('span');
+          title.className = 'msg-title';
+          title.textContent = m.title || (m.kind === 'tool' ? '工具调用' : '回复');
+          head.append(badge, title);
+
+          const body = document.createElement('div');
+          body.className = 'msg-body';
+          body.textContent = m.text || '';
+
+          head.addEventListener('click', e => {
+            e.stopPropagation();
+            const wasOpen = item.classList.contains('open');
+            document.querySelectorAll('#list .msg.open').forEach(n => n.classList.remove('open'));
+            if (!wasOpen) {
+              item.classList.add('open');
+              openId = item.dataset.id;
+            } else {
+              openId = '';
+            }
+            post('activity', {});
+            post('resize', {});
+          });
+
+          item.append(head, body);
+          list.appendChild(item);
+        });
+        list.scrollTop = list.scrollHeight;
       }
 
       const confirm = v.confirm;
@@ -259,9 +323,42 @@
     });
   }
 
-  el('chevron').addEventListener('click', e => {
-    e.stopPropagation(); expanded = !expanded; applyExpand(); post('activity', {});
+  const ask = el('ask');
+  ask.addEventListener('focus', () => { post('focus', { value: true }); });
+  ask.addEventListener('blur', () => { post('focus', { value: false }); });
+
+  function sendText() {
+    const text = (ask.value || '').trim();
+    if (!text) return;
+    const task = activeTask();
+    ask.value = '';
+    ask.blur();
+    post('focus', { value: false });
+    post('send', { text, session: task ? task.id : '' });
+    // 本地回显，等下一次真实数据到达时整块重绘
+    const list = el('list');
+    const empty = list.querySelector('.empty');
+    if (empty) empty.remove();
+    const item = document.createElement('div');
+    item.className = 'msg assistant';
+    item.dataset.id = 'local:' + Date.now();
+    const head = document.createElement('div');
+    head.className = 'msg-head';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    const title = document.createElement('span');
+    title.className = 'msg-title';
+    title.textContent = '我：' + text;
+    head.append(badge, title);
+    item.appendChild(head);
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
+  }
+  el('send').addEventListener('click', e => { e.stopPropagation(); sendText(); });
+  ask.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); sendText(); }
   });
+
   el('open').addEventListener('click', e => { e.stopPropagation(); post('open', {}); });
   el('close').addEventListener('click', e => { e.stopPropagation(); post('dismiss', {}); });
   el('allow').addEventListener('click', () => { post('activity', {}); post('confirm', { allow: true }); });

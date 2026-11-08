@@ -149,6 +149,8 @@ public class DshaApp extends Application
     ShizukuShell.init(this);
     com.deepseekharness.app.ui.ThemeController.apply(this);
     com.deepseekharness.app.core.RuntimeTasks.initialize(this);
+    // dsh 一起服务就盯住容器里的悬浮窗状态文件：消息直接进悬浮窗，不依赖 3090 桥。
+    com.deepseekharness.app.floatwin.FloatWindow.startGuestWatch(this);
     final android.content.Context runtimeApp = getApplicationContext();
     runtimeHostPorts.install(
         new com.deepseekharness.app.runtime.RuntimeHostPorts.Provider() {

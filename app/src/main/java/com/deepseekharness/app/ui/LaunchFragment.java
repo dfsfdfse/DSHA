@@ -156,6 +156,25 @@ public class LaunchFragment extends Fragment {
       pendingAutoEnter = true;
     }
 
+    Button floatBtn = v.findViewById(R.id.launch_float);
+    if (floatBtn != null) {
+      floatBtn.setOnClickListener(
+          x -> {
+            if (!com.deepseekharness.app.OverlayController.permitted(requireContext())) {
+              android.widget.Toast.makeText(
+                      requireContext(),
+                      com.deepseekharness.app.util.UiText.choose(
+                          "请先在系统设置里允许显示在其他应用上层",
+                          "Allow display over other apps first"),
+                      android.widget.Toast.LENGTH_LONG)
+                  .show();
+              return;
+            }
+            com.deepseekharness.app.floatwin.FloatWindow.resetAutoShow();
+            com.deepseekharness.app.floatwin.FloatWindow.showRealPage(requireContext());
+          });
+    }
+
     stop.setOnClickListener(
         x -> {
           startRequest.incrementAndGet();
@@ -197,6 +216,7 @@ public class LaunchFragment extends Fragment {
     final View root = getView();
     if (root == null || !isResumed() || activity.isFinishing() || activity.isDestroyed()) return;
     FirstRunWebStart.cancel(requireContext());
+    com.deepseekharness.app.floatwin.FloatWindow.resetAutoShow();
     preparingStart = true;
     long request = startRequest.incrementAndGet();
     invalidateWebEntry();

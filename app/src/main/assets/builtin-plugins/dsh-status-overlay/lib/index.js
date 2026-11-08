@@ -25,11 +25,15 @@
  * 5) **一个异常都不能冒出去**。这是个「顺带好看」的功能，绝不能影响 agent 干活 ——
  *    所有 IO 与解析都包在 try/catch 里，失败就静默降级。
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 export const name = 'dsh-status-overlay'
 
 /** 桥地址（App 侧只监听回环，容器与宿主共享网络命名空间，所以直接连得上）。 */
 const BRIDGE = 'http://127.0.0.1:3090/app/overlay'
+/** 悬浮窗数据走文件：宿主可能同时装着正式版，3090 被它占着时 HTTP 推送会落错应用。 */
+const FLOAT_STATE = '/root/.dsh/float-state.json'
+/** 反向通道：宿主播下去用户要问 agent 的话，插件投递到会话。 */
+const FLOAT_INBOX = '/root/.dsh/float-inbox.json'
 /** 富内容悬浮窗：只发「重要信息 + 步骤」，不发原始 token。 */
 const FLOAT = 'http://127.0.0.1:3090/app/float'
 const TOKEN_PATH = '/root/.dsh/.bridge_token'
@@ -221,13 +225,11 @@ async function sendFloat(key, b) {
   // 汇总所有在跑的会话，一次发给悬浮窗；页面用标签切换查看。
   const tasks = []
   for (const [k, s] of state) {
-    if (!s || (!s.status && !(s.steps || []).length)) continue
+    if (!s || !(s.messages || []).length) continue
     tasks.push({
       id: k,
       title: titles.get(k) || '',
-      status: s.status || '',
-      detail: s.detail || '',
-      steps: (s.steps || []).slice(-16),
+      messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
     })
@@ -239,6 +241,7 @@ async function sendFloat(key, b) {
     active: key,
     count: tasks.length,
   })
+  writeState(payload)
   try {
     await fetch(`${FLOAT}?json=${encodeURIComponent(payload)}`, {
       headers: { 'X-Token': tok },
@@ -247,6 +250,37 @@ async function sendFloat(key, b) {
   } catch {
     // 悬浮窗不是关键路径，失败静默
   }
+}
+
+/** 整份状态原子写入文件，宿主轮询读取。写失败不影响 agent。 */
+function writeState(payload) {
+  try {
+    const tmp = FLOAT_STATE + '.' + process.pid + '.tmp'
+    writeFileSync(tmp, payload, { mode: 0o600 })
+    renameSync(tmp, FLOAT_STATE)
+  } catch { /* 悬浮窗不是关键路径 */ }
+}
+
+/** 不依赖某个会话的一次状态发布：dsh 启动时就该让悬浮窗出现。 */
+function publishFloat(activeKey) {
+  const tasks = []
+  for (const [k, s] of state) {
+    if (!s || !(s.messages || []).length) continue
+    tasks.push({
+      id: k,
+      title: titles.get(k) || '',
+      messages: (s.messages || []).slice(-20),
+      updated: s.updated || 0,
+      done: !!s.done,
+    })
+  }
+  tasks.sort((left, right) => right.updated - left.updated)
+  writeState(JSON.stringify({
+    title: tasks.length ? tasks[0].title : '',
+    tasks: tasks.slice(0, 6),
+    active: activeKey || (tasks.length ? tasks[0].id : ''),
+    count: tasks.length,
+  }))
 }
 
 function pushStep(b, text) {
@@ -260,7 +294,7 @@ function bucket(key) {
   let b = state.get(key)
   if (!b) {
     b = { line: '', think: '', timer: undefined, pending: false,
-          status: '', detail: '', steps: [], ftimer: undefined }
+          status: '', detail: '', steps: [], ftimer: undefined, messages: [], done: false }
     state.set(key, b)
     // 会话数量不该无限涨（异常情况下也就几十个）
     if (state.size > 16) {
@@ -295,6 +329,12 @@ function schedule(key, kind, getter) {
 export function apply(ctx) {
   // 顺带把插件真实加载状态报给 App（见 reportPluginStates 的注释）
   reportPluginStates(ctx)
+  // 悬浮窗：启动即出现（哪怕还没有消息），之后按状态文件更新。
+  const started = setTimeout(() => {
+    try { publishFloat('') } catch { }
+  }, 300)
+  if (typeof started?.unref === 'function') started.unref()
+  startInbox(ctx)
   const onEvent = (session, event) => {
     try {
       if (!bridgeToken()) return
@@ -349,10 +389,11 @@ export function apply(ctx) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
-        b.status = label
         b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
+        b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Date.now() })
+        if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         scheduleFloat(key, b)
         return
       }
@@ -363,6 +404,9 @@ export function apply(ctx) {
         b.think = ''
         b.done = false
         b.updated = Date.now()
+        b.status = '正在处理…'
+        b.detail = ''
+        scheduleFloat(key, b)
         return
       }
 
@@ -372,8 +416,17 @@ export function apply(ctx) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
-        // 留着最后一句让它自然淡出（App 侧几秒后自己收起来）
-        b.status = (b.line || '').replace(/\s+/g, ' ').trim().slice(0, 240) || '本轮完成'
+        const finished = (b.line || '').replace(/\s+/g, ' ').trim()
+        if (finished) {
+          b.messages.push({
+            kind: 'assistant',
+            title: finished.slice(0, 48),
+            text: finished.slice(0, 4000),
+            at: Date.now(),
+          })
+          if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
+        }
+        b.line = ''
         b.updated = Date.now()
         b.detail = ''
         b.done = true
@@ -406,12 +459,50 @@ export function apply(ctx) {
         void send(key, 'clear', '')
       }
       state.clear()
+      writeState(JSON.stringify({ clear: true, tasks: [] }))
     } catch {
       // 卸载路径上的清理，失败无所谓
     }
   })
 }
 
+
+/** 悬浮窗里的输入框 → 会话：宿主把文本写进 FLOAT_INBOX，这里轮询并投递。 */
+function startInbox(ctx) {
+  let agents
+  let lastSeq = 0
+  try {
+    const seed = JSON.parse(readFileSync(FLOAT_INBOX, 'utf8'))
+    if (seed && Number.isFinite(Number(seed.seq))) lastSeq = Number(seed.seq)
+  } catch { /* 首次没有收件箱 */ }
+  ctx.inject(['agents'], scoped => {
+    agents = scoped.agents
+    return () => { agents = undefined }
+  })
+  const drain = async () => {
+    try {
+      if (!agents) return
+      const raw = readFileSync(FLOAT_INBOX, 'utf8')
+      const msg = JSON.parse(raw)
+      const seq = Number(msg?.seq)
+      const text = typeof msg?.text === 'string' ? msg.text : ''
+      if (!Number.isFinite(seq) || seq <= lastSeq || !text.trim()) return
+      lastSeq = seq
+      const agent = agents.get(String(msg.session || ''))
+      if (!agent) return
+      const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: text.slice(0, 8000) }],
+        source: { kind: 'user' },
+      }))
+    } catch { /* 投递失败不能影响 agent 主链路 */ }
+  }
+  const timer = setInterval(() => { void drain() }, 400)
+  if (typeof timer?.unref === 'function') timer.unref()
+  ctx.on('dispose', () => {
+    try { clearInterval(timer) } catch { }
+  })
+}
 
 /**
  * 把「插件真实加载状态」报给 App 的 3090 桥。
