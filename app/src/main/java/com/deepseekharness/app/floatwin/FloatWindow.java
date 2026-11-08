@@ -200,8 +200,11 @@ public final class FloatWindow {
           realPage = false;
           userClosed = false;
           if (alpha > 0) {
-            prefs(app).edit().putInt("floatwin_alpha", Math.max(20, Math.min(100, alpha))).apply();
-            if (container != null) container.setAlpha(Math.max(20, Math.min(100, alpha)) / 100f);
+            prefs(app)
+                .edit()
+                .putInt("floatwin_alpha", Math.max(55, Math.min(100, alpha)))
+                .putBoolean("floatwin_alpha_user", true)
+                .apply();
           }
           if (hiddenBlocks != null) {
             prefs(app).edit().putString("floatwin_blocks", hiddenBlocks).apply();
@@ -540,7 +543,9 @@ public final class FloatWindow {
     frame.addView(corner, cornerParams);
     attachResize(corner, frame, true, true);
 
-    frame.setAlpha(alphaOf(app));
+    // 窗口保持不透明：半透明只由页面画。两边都设会叠乘（0.6×0.6=0.36），
+    // 背后的网页文字透上来，悬浮窗里的字全糊在一起。
+    frame.setAlpha(1f);
 
     WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
     lp.type =
@@ -578,13 +583,19 @@ public final class FloatWindow {
     return true;
   }
 
-  /** 半透明度（0.2–1），与设置里的 floatwin_alpha 一致。 */
-  private static float alphaOf(Context app) {
+  /** 半透明度百分比（55–100），页面按它画卡片底色。 */
+  private static int alphaPercent(Context app) {
     try {
-      int alpha = Math.max(20, Math.min(100, prefs(app).getInt("floatwin_alpha", 60)));
-      return alpha / 100f;
+      SharedPreferences p = prefs(app);
+      int alpha = p.getInt("floatwin_alpha", 92);
+      // 旧版本默认 60%，而用户从没动过滑杆：抬到看得清的默认值，只迁移一次。
+      if (alpha == 60 && !p.getBoolean("floatwin_alpha_user", false)) {
+        alpha = 92;
+        p.edit().putInt("floatwin_alpha", alpha).apply();
+      }
+      return Math.max(55, Math.min(100, alpha));
     } catch (Throwable error) {
-      return 0.6f;
+      return 92;
     }
   }
 
@@ -773,11 +784,15 @@ public final class FloatWindow {
           return;
         case "alpha": {
           Context ctx = web == null ? null : web.getContext();
-          int alpha = Math.max(20, Math.min(100, p.optInt("value", 60)));
+          int alpha = Math.max(55, Math.min(100, p.optInt("value", 92)));
           if (ctx != null) {
-            prefs(ctx).edit().putInt("floatwin_alpha", alpha).apply();
+            prefs(ctx)
+                .edit()
+                .putInt("floatwin_alpha", alpha)
+                .putBoolean("floatwin_alpha_user", true)
+                .apply();
           }
-          if (container != null) container.setAlpha(alpha / 100f);
+          // 页面已经按新值重画（--alpha），窗口本身不跟着变，避免叠乘
           return;
         }
         case "model": {
@@ -868,7 +883,7 @@ public final class FloatWindow {
       JSONObject payload = new JSONObject(pendingPayload.isEmpty() ? "{}" : pendingPayload);
       Context ctx = web == null ? null : web.getContext();
       if (ctx != null) {
-        int alpha = Math.max(20, Math.min(100, prefs(ctx).getInt("floatwin_alpha", 60)));
+        int alpha = alphaPercent(ctx);
         payload.put("alpha", alpha);
         boolean dark =
             (ctx.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)

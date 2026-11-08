@@ -559,7 +559,16 @@ export function apply(ctx) {
         b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
-        b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Date.now() })
+        // 同一个工具连着跑（比如一屏四条「正在执行命令」）就并成一条计数，
+        // 不然悬浮窗里全是重复行，真正的内容被挤没了。
+        const last = b.messages[b.messages.length - 1]
+        if (last && last.kind === 'tool' && last.title === label) {
+          last.count = (last.count || 1) + 1
+          last.text = detail || last.text
+          last.at = Date.now()
+        } else {
+          b.messages.push({ kind: 'tool', title: label, text: detail || '', at: Date.now() })
+        }
         if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         scheduleFloat(key, b)
         return
