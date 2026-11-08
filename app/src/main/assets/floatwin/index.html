@@ -156,47 +156,36 @@
     line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0;
   }
 
-  /* 紧凑输入栏：+ 图片 / 输入 / 语音 / 发送 */
-  /* 右上角 ≡ 菜单：透明度 / 区块显隐 / 缩放提示 */
-  #menu {
-    position: absolute; right: 8px; top: 34px; z-index: 6; width: 216px;
-    background: rgba(22,26,34,.98); border: 1px solid rgba(255,255,255,.10);
-    border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
-    font-size: 12px; color: var(--muted);
-  }
-  #menu[hidden] { display: none; }
-  #menu .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
-  #menu .row span { flex: 1 1 auto; }
-  #menu input[type=range] { flex: 1 1 auto; accent-color: #7aa2ff; }
-  #menu .sw { width: 34px; height: 18px; border-radius: 9px; background: rgba(255,255,255,.16); position: relative; flex: 0 0 auto; }
-  #menu .sw.on { background: rgba(122,162,255,.9); }
-  #menu .sw i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 7px; background: #fff; transition: left .12s; }
-  #menu .sw.on i { left: 18px; }
-  #menu .hint { font-size: 11px; color: rgba(255,255,255,.45); padding-top: 6px; line-height: 1.5; }
-  #menu .sep { height: 1px; background: rgba(255,255,255,.08); margin: 6px 0; }
-  body.hide-tabs #tabs { display: none !important; }
-  body.hide-usage #usage { display: none !important; }
-  body.hide-compose #compose, body.hide-compose #attach-bar { display: none !important; }
 
+  /* 输入栏：对齐 dsh 底部聊天框（圆角容器 + 左侧圆钮 + 模型胶囊 + 右侧功能钮） */
   #compose {
-    flex: 0 0 auto;
-    display: flex; align-items: center; gap: 6px;
-    margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    margin-top: 6px; padding: 5px 6px;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
   }
-  #compose button {
-    flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 15px;
-    background: rgba(255,255,255,.08); color: var(--fg); font-size: 15px;
-    display: flex; align-items: center; justify-content: center; padding: 0;
+  .round {
+    flex: 0 0 auto; width: 32px; height: 32px; border: none; border-radius: 16px;
+    background: rgba(255,255,255,.10); color: var(--fg);
+    display: flex; align-items: center; justify-content: center; padding: 0; font-size: 15px;
   }
-  #compose button.listening { background: rgba(255,107,94,.85); color: #fff; }
+  .round.primary { background: #4c8dff; color: #fff; }
+  .round.ghost { background: transparent; color: var(--muted); }
   #ask {
-    flex: 1 1 auto; min-width: 0;
-    background: rgba(255,255,255,.06); border: 1px solid var(--line);
-    color: var(--fg); font-size: 12.5px; padding: 6px 10px; border-radius: 15px;
-    outline: none; height: 30px;
+    flex: 1 1 auto; min-width: 0; height: 30px;
+    background: transparent; border: none; outline: none;
+    color: var(--fg); font-size: 13px; padding: 0 2px;
   }
   #ask::placeholder { color: var(--muted); }
-  #send { background: rgba(122,162,255,.92) !important; color: #0b1020 !important; font-weight: 700; }
+  #model {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 3px;
+    height: 26px; padding: 0 8px; border: none; border-radius: 13px;
+    background: rgba(255,255,255,.08); color: var(--muted); font-size: 11px;
+  }
+  #model b { font-weight: 500; color: var(--fg); }
+  #compose .sep { width: 1px; height: 18px; background: rgba(255,255,255,.10); flex: 0 0 auto; }
+
   #send:disabled { opacity: .4; }
   #actions { flex: 0 0 auto; display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
@@ -233,10 +222,7 @@
     <div class="urow"><i class="tools"></i><span>工具定义</span><b id="u-tools">-</b></div>
     <div class="urow"><i class="msg"></i><span>对话消息</span><b id="u-msg">-</b></div>
   </div>
-  <div id="usage" hidden>
-    <span id="usage-text">上下文 0%</span>
-    <span id="usage-meter"><span id="usage-fill"></span></span>
-  </div>
+
   <div id="menu" hidden>
     <div class="row"><span>透明度</span><b id="m-alpha-v" style="min-width:32px;text-align:right;color:var(--fg)">60%</b></div>
     <div class="row"><input id="m-alpha" type="range" min="20" max="100" step="5" value="60"></div>
@@ -250,10 +236,13 @@
     <div class="thumb"><img id="thumb-img" alt=""><button id="thumb-x">×</button></div>
   </div>
   <div id="compose">
-    <button id="pick" title="图片">+</button>
+    <button class="round" id="pick" title="图片">+</button>
+    <button id="model" title="模型"><b>标准模式</b><span>▾</span></button>
+    <button class="round ghost" id="attach" title="附件">📎</button>
     <input id="ask" type="text" placeholder="问点什么…" autocomplete="off" />
-    <button id="mic" title="语音">🎙</button>
-    <button id="send" title="发送">↑</button>
+    <button class="round ghost" id="db" title="上下文用量">▤</button>
+    <button class="round ghost" id="mic" title="语音">🎙</button>
+    <button class="round primary" id="send" title="发送">↑</button>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
@@ -298,15 +287,11 @@
   }
 
   function renderUsage(usage) {
-    const line = el('usage');
     if (!usage || !Number.isFinite(usage.used) || !Number.isFinite(usage.window) || usage.window <= 0) {
-      line.hidden = true;
       el('usage-card').hidden = true;
       return;
     }
     const pct = Math.min(100, Math.round((usage.used / usage.window) * 100));
-    el('usage-text').textContent = '上下文 ' + pct + '% · ' + shortK(usage.used) + '/' + shortK(usage.window);
-    el('usage-fill').style.width = pct + '%';
     el('u-pct').textContent = pct + '%';
     el('u-total').textContent = '~' + shortK(usage.used) + ' / ' + shortK(usage.window);
     const total = Math.max(1, (usage.system || 0) + (usage.tools || 0) + (usage.messages || 0));
@@ -316,7 +301,6 @@
     el('u-sys').textContent = '~' + shortK(usage.system);
     el('u-tools').textContent = '~' + shortK(usage.tools);
     el('u-msg').textContent = '~' + shortK(usage.messages);
-    line.hidden = false;
   }
 
   const blocks = { tabs: 'hide-tabs', usage: 'hide-usage', compose: 'hide-compose' };
@@ -574,11 +558,14 @@
     el('m-alpha-v').textContent = value + '%';
     post('alpha', { value });
   });
-  el('usage').addEventListener('click', e => {
+  el('db').addEventListener('click', e => {
     e.stopPropagation();
     const card = el('usage-card');
     card.hidden = !card.hidden;
   });
+  el('attach').addEventListener('click', e => { e.stopPropagation(); post('pickImage', {}); });
+  el('model').addEventListener('click', e => { e.stopPropagation(); });
+
   el('thumb-x').addEventListener('click', e => {
     e.stopPropagation();
     pendingImage = '';
