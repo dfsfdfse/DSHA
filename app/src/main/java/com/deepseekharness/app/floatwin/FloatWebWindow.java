@@ -205,7 +205,7 @@ public final class FloatWebWindow {
         new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-    android.widget.TextView settings = pill("≡");
+    android.widget.ImageView settings = pillIcon(com.deepseekharness.app.R.drawable.ic_fw_menu);
     FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(24), dp(24));
     sp.gravity = Gravity.TOP | Gravity.END;
     sp.topMargin = dp(3);
@@ -217,7 +217,7 @@ public final class FloatWebWindow {
             menu.setVisibility(menu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         });
 
-    android.widget.TextView close = pill("×");
+    android.widget.ImageView close = pillIcon(com.deepseekharness.app.R.drawable.ic_fw_close);
     FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(24), dp(24));
     cp.gravity = Gravity.TOP | Gravity.END;
     cp.topMargin = dp(3);
@@ -268,12 +268,12 @@ public final class FloatWebWindow {
     return bar;
   }
 
-  private android.widget.TextView pill(String label) {
-    android.widget.TextView view = new android.widget.TextView(app);
-    view.setText(label);
-    view.setTextSize(12);
-    view.setTextColor(0xCCFFFFFF);
-    view.setGravity(Gravity.CENTER);
+  private android.widget.ImageView pillIcon(int drawable) {
+    android.widget.ImageView view = new android.widget.ImageView(app);
+    view.setImageResource(drawable);
+    view.setColorFilter(0xCCFFFFFF);
+    view.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+    view.setPadding(dp(5), dp(5), dp(5), dp(5));
     android.graphics.drawable.GradientDrawable bg =
         new android.graphics.drawable.GradientDrawable();
     bg.setColor(0x55000000);
