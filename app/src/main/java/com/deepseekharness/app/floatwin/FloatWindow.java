@@ -16,6 +16,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -183,6 +184,10 @@ public final class FloatWindow {
   /** 打开自绘聊天窗（入口按钮用）：绝不加载 dsh 页面，先用容器里最新的状态渲染。 */
   /** 当前悬浮窗用哪套界面：dsh 原生 Web 界面（缩放后）或自绘界面。 */
   private static final String K_UI = "floatwin_ui";
+  /** dsh 页面的字号缩放百分比（设置页里可调）。 */
+  private static final String K_ZOOM = "floatwin_zoom";
+  /** 设置页（原生视图，整窗覆盖）；打开时压在网页与窗口按钮之上。 */
+  private static View settingsPanel;
 
   public static void showCustom(Context context) {
     showCustom(context, 0, null);
@@ -470,7 +475,7 @@ public final class FloatWindow {
     view.getSettings().setAllowContentAccess(false);
     view.getSettings().setSupportZoom(false);
     // dsh 原生页面在 360dp 窗口里偏大：默认 75% 缩放；自绘页保持 100%。
-    int zoom = loadCustomPage ? 100 : Math.max(50, Math.min(100, prefs(app).getInt("floatwin_zoom", 75)));
+    int zoom = loadCustomPage ? 100 : Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 75)));
     view.getSettings().setTextZoom(zoom);
     view.setVerticalScrollBarEnabled(false);
     view.setHorizontalScrollBarEnabled(false);
@@ -566,15 +571,7 @@ public final class FloatWindow {
     menuParams.rightMargin = dp(app, 66);
     frame.addView(overlayButton(app, "≡"), menuParams);
     frame.getChildAt(frame.getChildCount() - 1)
-        .setOnClickListener(
-            v -> {
-              if (realPage) {
-                Context ctx = web == null ? null : web.getContext();
-                if (ctx != null) switchToCustomUi(ctx);
-                return;
-              }
-              evaluate("window.dshFloat&&window.dshFloat.toggleMenu()");
-            });
+        .setOnClickListener(v -> toggleSettings(app));
 
     FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(dp(app, 26), dp(app, 26));
     closeParams.gravity = Gravity.TOP | Gravity.END;
@@ -704,6 +701,431 @@ public final class FloatWindow {
           }
         });
     return view;
+  }
+
+  // ───────────────────────────── 设置页 ─────────────────────────────
+  // ≡ 打开：原生视图整窗覆盖当前网页（网页继续保持加载，收起即回来）。
+  // 只用到 TextView / SeekBar，颜色与层级对齐 dsh 令牌，圆角只给 5–6dp。
+
+  private static boolean isDark(Context app) {
+    return (app.getResources().getConfiguration().uiMode
+            & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+        == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+  }
+
+  private static void toggleSettings(Context app) {
+    if (settingsPanel != null) {
+      closeSettings();
+      return;
+    }
+    if (container == null) return;
+    try {
+      InputMethodManager imm =
+          (InputMethodManager) app.getSystemService(Context.INPUT_METHOD_SERVICE);
+      if (imm != null && web != null) imm.hideSoftInputFromWindow(web.getWindowToken(), 0);
+    } catch (Throwable ignored) {
+    }
+    try {
+      View panel = buildSettings(app);
+      container.addView(
+          panel,
+          new FrameLayout.LayoutParams(
+              ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+      settingsPanel = panel;
+    } catch (Throwable ignored) {
+    }
+  }
+
+  private static void closeSettings() {
+    View panel = settingsPanel;
+    settingsPanel = null;
+    if (panel == null) return;
+    try {
+      if (container != null) container.removeView(panel);
+    } catch (Throwable ignored) {
+    }
+  }
+
+  private static View buildSettings(final Context app) {
+    final boolean dark = isDark(app);
+    final int bg = dark ? 0xFF16191F : 0xFFFFFFFF;
+    final int fg = dark ? 0xFFF9FAFB : 0xFF0F1115;
+    final int muted = dark ? 0xFFCFD3D6 : 0xFF61666B;
+    final int tertiary = dark ? 0xFFADB2B8 : 0xFF81858C;
+    final int line = dark ? 0x1AFFFFFF : 0x0F000000;
+    final int field = dark ? 0xFF2C2C2E : 0xFFFFFFFF;
+    final int selector = dark ? 0xFF353638 : 0xFFF5F6F7;
+    final int hover = dark ? 0x14FFFFFF : 0x0F000000;
+    final int accent = dark ? 0xFF7AAAFF : 0xFF4176E6;
+    final int danger = 0xFFFF6B5E;
+    final int hair = Math.max(1, Math.round(app.getResources().getDisplayMetrics().density * 0.5f));
+
+    LinearLayout page = new LinearLayout(app);
+    page.setOrientation(LinearLayout.VERTICAL);
+    page.setBackground(round(app, bg, 6, line, 1));
+
+    // 标题行：设置 · 完成
+    LinearLayout head = new LinearLayout(app);
+    head.setOrientation(LinearLayout.HORIZONTAL);
+    head.setGravity(Gravity.CENTER_VERTICAL);
+    head.setPadding(dp(app, 14), 0, dp(app, 6), 0);
+    head.addView(
+        label(app, "设置", 14, fg, true),
+        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    android.widget.TextView done = label(app, "完成", 13, accent, false);
+    done.setPadding(dp(app, 12), dp(app, 8), dp(app, 12), dp(app, 8));
+    done.setBackground(pressable(app, hover, 5));
+    done.setOnClickListener(v -> closeSettings());
+    head.addView(
+        done,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    page.addView(
+        head, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 44)));
+    page.addView(
+        divider(app, line),
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, hair));
+
+    android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+    scroll.setVerticalScrollBarEnabled(false);
+    scroll.setFillViewport(true);
+    LinearLayout body = new LinearLayout(app);
+    body.setOrientation(LinearLayout.VERTICAL);
+    body.setPadding(dp(app, 14), dp(app, 2), dp(app, 14), dp(app, 12));
+    scroll.addView(
+        body,
+        new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    page.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+    // ── 界面：dsh 原生 / 自绘
+    body.addView(section(app, "界面", tertiary));
+    final boolean[] nativeUi = {!"custom".equals(prefs(app).getString(K_UI, "dsh"))};
+    LinearLayout seg = new LinearLayout(app);
+    seg.setOrientation(LinearLayout.HORIZONTAL);
+    seg.setBackground(round(app, selector, 6, 0, 0));
+    seg.setPadding(dp(app, 2), dp(app, 2), dp(app, 2), dp(app, 2));
+    final android.widget.TextView[] cells = new android.widget.TextView[2];
+    String[] cellNames = {"dsh 原生", "自绘"};
+    for (int i = 0; i < 2; i++) {
+      cells[i] = label(app, cellNames[i], 12, muted, false);
+      cells[i].setGravity(Gravity.CENTER);
+      seg.addView(
+          cells[i], new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+    }
+    final Runnable paintSeg =
+        () -> {
+          for (int i = 0; i < 2; i++) {
+            boolean on = (i == 0) == nativeUi[0];
+            cells[i].setTextColor(on ? fg : muted);
+            cells[i].setTypeface(
+                null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            cells[i].setBackground(on ? round(app, field, 5, 0, 0) : null);
+          }
+        };
+    paintSeg.run();
+    cells[0].setOnClickListener(
+        v -> {
+          if (nativeUi[0]) return;
+          if (webUrl(app) == null) {
+            toast(app, "dsh 还没启动，先运行 dsh 再切原生界面");
+            return;
+          }
+          nativeUi[0] = true;
+          paintSeg.run();
+          switchToDshUi(app);
+        });
+    cells[1].setOnClickListener(
+        v -> {
+          if (!nativeUi[0]) return;
+          nativeUi[0] = false;
+          paintSeg.run();
+          switchToCustomUi(app);
+        });
+    body.addView(
+        seg, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 32)));
+
+    // ── 只对当前的界面类型显示相关项：dsh 页面调字号，自绘页调透明度与区块
+    if (realPage) {
+      body.addView(section(app, "字号", tertiary));
+      final int zoom = Math.max(50, Math.min(110, prefs(app).getInt(K_ZOOM, 75)));
+      LinearLayout zoomRow = row(app);
+      zoomRow.addView(
+          label(app, "缩放比例", 13, fg, false),
+          new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+      final android.widget.TextView zoomVal = label(app, zoom + "%", 12, muted, false);
+      zoomRow.addView(
+          zoomVal,
+          new LinearLayout.LayoutParams(
+              ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+      body.addView(
+          zoomRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 24)));
+      android.widget.SeekBar zoomBar = new android.widget.SeekBar(app);
+      zoomBar.setMax(60);
+      zoomBar.setProgress(zoom - 50);
+      tint(zoomBar, accent, selector);
+      zoomBar.setOnSeekBarChangeListener(
+          new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(
+                android.widget.SeekBar bar, int progress, boolean fromUser) {
+              int value = 50 + progress;
+              zoomVal.setText(value + "%");
+              if (!fromUser) return;
+              prefs(app).edit().putInt(K_ZOOM, value).apply();
+              if (web != null && realPage) web.getSettings().setTextZoom(value);
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {}
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {}
+          });
+      body.addView(
+          zoomBar,
+          new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 34)));
+      body.addView(hint(app, "只影响 dsh 页面；dsh 里的输入框、按钮跟着一起缩放。", tertiary));
+    } else {
+      body.addView(section(app, "不透明度", tertiary));
+      final int alpha = alphaPercent(app);
+      LinearLayout alphaRow = row(app);
+      alphaRow.addView(
+          label(app, "背景", 13, fg, false),
+          new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+      final android.widget.TextView alphaVal = label(app, alpha + "%", 12, muted, false);
+      alphaRow.addView(
+          alphaVal,
+          new LinearLayout.LayoutParams(
+              ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+      body.addView(
+          alphaRow,
+          new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 24)));
+      android.widget.SeekBar alphaBar = new android.widget.SeekBar(app);
+      alphaBar.setMax(10);
+      alphaBar.setProgress(alpha - 90);
+      tint(alphaBar, accent, selector);
+      alphaBar.setOnSeekBarChangeListener(
+          new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(
+                android.widget.SeekBar bar, int progress, boolean fromUser) {
+              int value = 90 + progress;
+              alphaVal.setText(value + "%");
+              if (!fromUser) return;
+              prefs(app)
+                  .edit()
+                  .putInt("floatwin_alpha", value)
+                  .putBoolean("floatwin_alpha_user", true)
+                  .apply();
+              evaluate(
+                  "document.documentElement.style.setProperty('--alpha','"
+                      + (value / 100.0)
+                      + "')");
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {}
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {}
+          });
+      body.addView(
+          alphaBar,
+          new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 34)));
+      body.addView(hint(app, "低于 90% 桌面图标会透到字上，所以最低 90%。", tertiary));
+
+      body.addView(section(app, "区块", tertiary));
+      String[] blockKeys = {"tabs", "usage", "compose"};
+      String[] blockNames = {"会话标签", "上下文用量", "输入栏"};
+      for (int i = 0; i < blockKeys.length; i++) {
+        body.addView(
+            blockRow(app, blockKeys[i], blockNames[i], fg, muted, tertiary, accent, hover),
+            new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 36)));
+      }
+    }
+
+    // ── 窗口操作
+    body.addView(section(app, "窗口", tertiary));
+    body.addView(
+        actionRow(
+            app,
+            "刷新页面",
+            fg,
+            hover,
+            () -> {
+              if (web == null) {
+                pullState(app);
+                pushPayload();
+                return;
+              }
+              closeSettings();
+              try {
+                web.reload();
+              } catch (Throwable ignored) {
+              }
+            }));
+    body.addView(
+        actionRow(app, "复位位置与尺寸", fg, hover, () -> resetWindow(app)));
+    body.addView(
+        actionRow(
+            app,
+            "关闭悬浮窗",
+            danger,
+            hover,
+            () -> {
+              userClosed = true;
+              dismiss();
+            }));
+
+    return page;
+  }
+
+  /** 设置页里的一行动作：整行可点，按下浮一层 hover。 */
+  private static View actionRow(
+      Context app, String text, int color, int hover, final Runnable run) {
+    android.widget.TextView view = label(app, text, 13, color, false);
+    view.setGravity(Gravity.CENTER_VERTICAL);
+    view.setPadding(0, 0, 0, 0);
+    view.setBackground(pressable(app, hover, 5));
+    view.setOnClickListener(v -> run.run());
+    view.setLayoutParams(
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 40)));
+    return view;
+  }
+
+  /** 自绘界面的区块开关：右侧显示开/关，点行切换（写 floatwin_blocks 再下发给页面）。 */
+  private static View blockRow(
+      Context app,
+      final String key,
+      String name,
+      int fgColor,
+      int mutedColor,
+      int offColor,
+      final int onColor,
+      int hover) {
+    final boolean[] on = {!hiddenBlocks(app).contains(key)};
+    LinearLayout view = row(app);
+    view.setPadding(0, 0, 0, 0);
+    view.setBackground(pressable(app, hover, 5));
+    view.addView(
+        label(app, name, 13, fgColor, false),
+        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    final android.widget.TextView trail = label(app, on[0] ? "开" : "关", 12, on[0] ? onColor : offColor, false);
+    view.addView(
+        trail,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    view.setOnClickListener(
+        v -> {
+          on[0] = !on[0];
+          trail.setText(on[0] ? "开" : "关");
+          trail.setTextColor(on[0] ? onColor : offColor);
+          java.util.List<String> names = hiddenBlocks(app);
+          if (on[0]) names.remove(key);
+          else if (!names.contains(key)) names.add(key);
+          String joined = android.text.TextUtils.join(",", names);
+          prefs(app).edit().putString("floatwin_blocks", joined).apply();
+          evaluate("window.dshFloat&&window.dshFloat.applyConfig(" + JSONObject.quote(joined) + ")");
+        });
+    return view;
+  }
+
+  private static java.util.List<String> hiddenBlocks(Context app) {
+    java.util.List<String> names = new java.util.ArrayList<>();
+    for (String part : prefs(app).getString("floatwin_blocks", "").split(",")) {
+      String name = part.trim();
+      if (!name.isEmpty()) names.add(name);
+    }
+    return names;
+  }
+
+  private static LinearLayout row(Context app) {
+    LinearLayout view = new LinearLayout(app);
+    view.setOrientation(LinearLayout.HORIZONTAL);
+    view.setGravity(Gravity.CENTER_VERTICAL);
+    return view;
+  }
+
+  private static android.widget.TextView section(Context app, String text, int color) {
+    android.widget.TextView view = label(app, text, 11, color, false);
+    view.setPadding(0, dp(app, 10), 0, dp(app, 6));
+    return view;
+  }
+
+  private static android.widget.TextView hint(Context app, String text, int color) {
+    android.widget.TextView view = label(app, text, 11, color, false);
+    view.setPadding(0, dp(app, 6), 0, dp(app, 2));
+    return view;
+  }
+
+  private static android.widget.TextView label(
+      Context app, String text, float sizeSp, int color, boolean bold) {
+    android.widget.TextView view = new android.widget.TextView(app);
+    view.setText(text);
+    view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sizeSp);
+    view.setTextColor(color);
+    view.setIncludeFontPadding(false);
+    if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+    return view;
+  }
+
+  private static View divider(Context app, int color) {
+    View view = new View(app);
+    view.setBackgroundColor(color);
+    return view;
+  }
+
+  private static android.graphics.drawable.GradientDrawable round(
+      Context app, int color, int radiusDp, int stroke, int strokePx) {
+    android.graphics.drawable.GradientDrawable shape =
+        new android.graphics.drawable.GradientDrawable();
+    shape.setColor(color);
+    shape.setCornerRadius(dp(app, radiusDp));
+    if (strokePx > 0) shape.setStroke(strokePx, stroke);
+    return shape;
+  }
+
+  private static android.graphics.drawable.Drawable pressable(
+      Context app, int hover, int radiusDp) {
+    android.graphics.drawable.StateListDrawable states =
+        new android.graphics.drawable.StateListDrawable();
+    states.addState(
+        new int[] {android.R.attr.state_pressed}, round(app, hover, radiusDp, 0, 0));
+    states.addState(new int[] {}, round(app, 0x00000000, radiusDp, 0, 0));
+    return states;
+  }
+
+  /** SeekBar 上色：只染进度与拇指，底槽用 selector 灰。 */
+  private static void tint(android.widget.SeekBar bar, int color, int track) {
+    try {
+      bar.setProgressTintList(android.content.res.ColorStateList.valueOf(color));
+      bar.setThumbTintList(android.content.res.ColorStateList.valueOf(color));
+      bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(track));
+    } catch (Throwable ignored) {
+    }
+  }
+
+  private static void toast(Context app, String text) {
+    try {
+      android.widget.Toast.makeText(app, text, android.widget.Toast.LENGTH_SHORT).show();
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /** 复位窗口：回到默认尺寸与居中位置。 */
+  private static void resetWindow(Context app) {
+    if (params == null || container == null) return;
+    int screenW = screenW(app);
+    int screenH = screenH(app);
+    int width = Math.min((int) (screenW * 0.94f), 760);
+    int height = Math.min(dp(app, 340), (int) (screenH * 0.55f));
+    params.width = Math.max(dp(app, MIN_W_DP), Math.min(screenW, width));
+    params.height = Math.max(dp(app, MIN_H_DP), Math.min(screenH, height));
+    params.x = clamp((screenW - params.width) / 2, 0, Math.max(0, screenW - params.width));
+    params.y = clamp(dp(app, 64), 0, Math.max(0, screenH - params.height));
+    prefs(app).edit().remove(K_X).remove(K_Y).remove(K_W).remove(K_H).apply();
+    updateLayout(container);
   }
 
   private static void openApp() {
@@ -1373,6 +1795,7 @@ public final class FloatWindow {
       } catch (Throwable ignored) {
       }
     }
+    settingsPanel = null;
     container = null;
     web = null;
     wm = null;
