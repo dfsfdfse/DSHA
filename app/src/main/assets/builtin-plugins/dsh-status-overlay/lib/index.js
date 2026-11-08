@@ -423,6 +423,13 @@ async function refreshThreads() {
 /** 从持久化日志里折出历史消息：用户、回复、工具调用（只取最近一段）。 */
 async function loadHistory(sessionId) {
   if (!queryApi || !sessionId) return false
+  // 正在跑的会话（比如刚被语音/工具发了消息）已经有实时数据：读历史会把它标成已完成、
+  // 冲掉正在流式输出的回答，所以直接用现有的
+  const live = state.get(sessionId.slice(-8))
+  if (live && !live.done && (live.messages || []).length) {
+    publishFloat(sessionId)
+    return true
+  }
   try {
     const loaded = await queryApi.readSession(sessionId)
     const events = Array.isArray(loaded?.events) ? loaded.events.slice(-260) : []
@@ -608,6 +615,26 @@ async function openInApp(session) {
   }
 }
 
+/** 收件箱注入的附件服务（工具发消息时复用它把文字规整成 dsh 的提示内容）。 */
+let sharedAttachments
+
+/** 向某个会话投递一条用户消息（和悬浮窗输入框同一条路径）。 */
+async function deliverText(agent, text) {
+  const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
+  const parts = [{ type: 'text', text: String(text).slice(0, 8000) }]
+  const content = sharedAttachments ? await sharedAttachments.admitPromptContent(parts) : parts
+  agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
+  void maybeRefreshThreads()
+}
+
+/** 等目标会话的桶出现（发出后事件约百毫秒到），再让悬浮窗切过去，避免页面去读历史。 */
+async function openWhenReady(id) {
+  const key = String(id).slice(-8)
+  for (let i = 0; i < 15 && !state.has(key); i++) await new Promise(r => setTimeout(r, 100))
+  publishFloat(id)
+  return openInApp(id)
+}
+
 /** 中文/阿拉伯数字 → 整数；取不到返回 0。 */
 function numberOf(text) {
   const arabic = String(text).match(/\d+/)
@@ -639,7 +666,7 @@ function resolveSession(wanted, rows) {
 }
 
 /** 会话管理：语音说「删掉最近的会话」「打开昨天那个」「新建会话」都走这里。 */
-const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'delete']
+const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'send', 'delete']
 
 async function sessionAdmin(args) {
   const action = String(args?.action || '')
@@ -704,10 +731,69 @@ async function sessionAdmin(args) {
       : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
   }
   if (action === 'new') {
-    const ok = await openInApp('new')
-    return ok
-      ? { ok: true, count: 1, text: '已打开悬浮窗的新会话，接着说的话就是新会话的第一句' }
-      : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
+    const message = String(args?.message || '').trim()
+    if (!message) {
+      const ok = await openInApp('new')
+      return ok
+        ? { ok: true, count: 1, text: '已打开悬浮窗的新会话，接着说的话就是新会话的第一句' }
+        : { ok: false, count: 0, text: '打开失败：悬浮窗没开或没有悬浮窗权限' }
+    }
+    // 新建会话并直接问：建好 → 发问题 → 悬浮窗切过去看它回答
+    let agent
+    try {
+      agent = await ensureAgent('new')
+    } catch (error) {
+      return { ok: false, count: 0, text: '新建会话失败：' + String(error?.message || error).slice(0, 80) }
+    }
+    if (!agent) return { ok: false, count: 0, text: '新建会话失败：会话服务不可用' }
+    const id = String(agent.session?.id || '')
+    try {
+      await deliverText(agent, message)
+    } catch (error) {
+      return { ok: false, count: 0, text: '新会话已建，但发送失败：' + String(error?.message || error).slice(0, 80) }
+    }
+    const shown = id ? await openWhenReady(id) : false
+    return {
+      ok: true,
+      count: 1,
+      text: `已新建会话并发出问题「${message.slice(0, 40)}」，回答在新会话里进行`
+        + (shown ? '，悬浮窗已切过去。' : '（悬浮窗没能切过去，可在会话列表里打开）。'),
+    }
+  }
+  if (action === 'send') {
+    const message = String(args?.message || '').trim()
+    if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id、标题片段或「最近」）' }
+    if (!message) return { ok: false, count: 0, text: '需要 message（要在那个会话里发的内容）' }
+    const rows = await sessionRows()
+    const id = resolveSession(wanted, rows)
+    if (!id) return { ok: false, count: 0, text: `没找到对应「${wanted}」的会话，先 list 看一下` }
+    const self = String(args?.__self || '')
+    if (self && id === self) {
+      return { ok: false, count: 0, text: '目标就是当前这个会话，直接在这里回答即可，不需要转发' }
+    }
+    const hit = rows.find(r => r.id === id)
+    const title = hit ? (hit.title || id.slice(-8)) : id.slice(-8)
+    let agent
+    try {
+      agent = await ensureAgent(id)
+    } catch (error) {
+      return { ok: false, count: 0, text: `恢复会话「${title}」失败：` + String(error?.message || error).slice(0, 80) }
+    }
+    if (!agent || String(agent.session?.id || '') !== id) {
+      return { ok: false, count: 0, text: `会话「${title}」恢复不了（可能已被删除），没有发送` }
+    }
+    try {
+      await deliverText(agent, message)
+    } catch (error) {
+      return { ok: false, count: 0, text: '发送失败：' + String(error?.message || error).slice(0, 80) }
+    }
+    const shown = await openWhenReady(id)
+    return {
+      ok: true,
+      count: 1,
+      text: `已在会话「${title}」里发出「${message.slice(0, 40)}」，回答在那个会话里进行`
+        + (shown ? '，悬浮窗已切过去。' : '（悬浮窗没能切过去，可在会话列表里打开）。'),
+    }
   }
   if (action === 'delete') {
     if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先用 list 查' }
@@ -770,7 +856,8 @@ function registerSessionTool(ctx) {
         'list：列出会话（可按 query 过滤标题或 id 前缀），返回标题、id 尾部、时间；',
         'read：读某个会话最近的对话记录（session 传 id，uuid 尾部也能识别）；',
         'open：在悬浮窗里打开指定会话，用户说「打开某某会话」时用这个；',
-        'new：打开一个新会话草稿，用户说「新建会话」时用这个；',
+        'new：新建会话；带 message 时会新建并直接把这句发进新会话（「新建会话问一下 X」）；',
+        'send：在指定会话里发一条消息（「找到 X 那个会话，问它 Y」），session 填 id/标题片段/「最近」，message 填要问的话；',
         'delete：删除会话（必须 confirm:true，会先移进回收站，不是不可恢复）。',
         '调用前先用 list 拿到准确的 id，不要臆造。',
       ].join(' '),
@@ -779,7 +866,8 @@ function registerSessionTool(ctx) {
         additionalProperties: false,
         required: ['action'],
         properties: {
-          action: { type: 'string', enum: [...SESSION_ACTIONS], description: 'list | read | open | new | delete' },
+          action: { type: 'string', enum: [...SESSION_ACTIONS], description: 'list | read | open | new | send | delete' },
+          message: { type: 'string', description: 'send / new 时要发进那个会话的内容（照用户原意整理成一句完整的话）' },
           session: { type: 'string', description: '会话 id（open/read/delete 必填）；uuid 尾部或标题片段也接受' },
           query: { type: 'string', description: 'list 时按标题或 id 前缀过滤' },
           limit: { type: 'integer', description: 'list 返回条数（默认 10）、read 返回轮数（默认 12）' },
@@ -799,8 +887,10 @@ function registerSessionTool(ctx) {
         },
         render: (_args, value) => [{ type: 'text', text: value.text }],
       },
-      async execute(args) {
-        return sessionAdmin(args)
+      async execute(args, exec) {
+        // 记下调用方会话：send 不能把消息转给自己
+        const self = String(exec?.agent?.session?.id || '')
+        return sessionAdmin({ ...args, __self: self })
       },
     }))
     pluginDiag('tool', 'ok rcha_session_admin')
@@ -851,6 +941,23 @@ function registerSessionSkill(ctx) {
         '- 「打开那个关于 X 的绘话」→ 先 `list` 找到 id，再 `{action:"open", session:"<id 或标题片段>"}`。',
         '- 「打开最近那个 / 倒数第二个回话」→ `{action:"open", session:"最近"}` 或 `session:"倒数第2个"`，工具会自己按时间排序解析。',
         '- 「开个新的 / 心建一个」→ `{action:"new"}`。',
+        '',
+        '### 复合指令：先找会话，再在那个会话里说话',
+        '',
+        '用户经常一句话里同时包含「去哪个会话」和「说什么」，要拆成一次 `send` 或带 message 的 `new`：',
+        '',
+        '- 「找到 X 那个会话，问它 Y」「在罗曼那个绘话里问一下 Y」「去 DSHA 的回话问 Y」',
+        '  → `{action:"send", session:"<X 的 id 或标题片段>", message:"Y"}`。拿不准是哪个就先 `list`，确定后再 send。',
+        '- 「新建会话，问一下 Y」「开个新的问 Y」「心建一个会画问 Y」',
+        '  → `{action:"new", message:"Y"}`（一次调用里建好并发出）。',
+        '- 「打开最近那个会话，问它 Y」→ `{action:"send", session:"最近", message:"Y"}`。',
+        '',
+        'message 的写法：把用户要问的那部分整理成一句完整、通顺的话，按同音表纠正错字，',
+        '去掉「找到…会话」「问一下」这类指路的词；保留用户原意，不要自己加内容。',
+        '例：「找到罗曼那个绘话问她今天心情怎么样」→ session:"罗曼"，message:"你今天心情怎么样？"',
+        '',
+        '**Y 要由目标会话去回答，不要在当前会话里自己回答 Y。** send/new 成功后只用一句话告诉用户',
+        '「已经在 X 会话里问了，回答会显示在悬浮窗」，然后结束本轮。',
         '- 「把最近那个删了」→ 先用 `session:"最近"` 调 `delete`，工具会回一条「指向哪个会话」，把标题和时间复述给用户，得到确认后再带完整 id 和 `confirm:true` 调一次。',
         '',
         '## 三、硬规则',
@@ -860,6 +967,7 @@ function registerSessionSkill(ctx) {
         '3. 用户只是在正常聊天（「帮我写个函数」「这个 bug 怎么修」）时，不要调用这些动作。',
         '4. 转写明显残缺（比如只剩「那个」）时，先 `list` 再问一句「你说的是不是 X」，不要瞎猜着开或删。',
         '5. 做完用一句口语中文回报，例如「打开了「修 git push 失败」那个会话」；不要贴 JSON、不要贴 uuid。',
+        '7. 目标会话就是当前这个会话时（工具会回「直接在这里回答」），就直接回答，不要再转发。',
         '6. 用户说的数字口语化（第两个、倒数第散个）也照上表归一成阿拉伯数字理解。',
       ].join('\n'),
     })
@@ -1552,7 +1660,8 @@ function startInbox(ctx) {
   })
   ctx.inject(['attachments'], scoped => {
     attachments = scoped.attachments
-    return () => { attachments = undefined }
+    sharedAttachments = scoped.attachments
+    return () => { attachments = undefined; sharedAttachments = undefined }
   })
   const drain = async () => {
     try {
