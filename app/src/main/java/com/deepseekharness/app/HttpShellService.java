@@ -244,6 +244,7 @@ public final class HttpShellService {
     routes.put(BridgeRoutes.Route.HELP, (s, r) -> s.appHelp());
     routes.put(BridgeRoutes.Route.PLUGINS, (s, r) -> s.appPlugins(r.path));
     routes.put(BridgeRoutes.Route.OVERLAY, (s, r) -> s.appOverlay(r.path));
+    routes.put(BridgeRoutes.Route.FLOAT, (s, r) -> s.appFloat(r.path));
     routes.put(
         BridgeRoutes.Route.LOCATION,
         (s, r) -> DeviceSense.location(s.ctx, "1".equals(r.param("fresh", ""))));
@@ -1762,6 +1763,45 @@ public final class HttpShellService {
         } catch (Throwable ignored) {
         }
       }
+      return "OK";
+    } catch (Throwable e) {
+      return "ERROR: " + safeError(e);
+    }
+  }
+
+  /** /app/float：富内容悬浮窗（WebView 渲染 + JSON 消息桥）。 */
+  private String appFloat(String path) {
+    try {
+      String q = queryOf(path);
+      String action = getParam(q, "action", "show");
+      if ("hide".equals(action)) {
+        com.deepseekharness.app.floatwin.FloatWindow.hide(ctx);
+        return "OK";
+      }
+      String text = getParam(q, "text", "");
+      String title = getParam(q, "title", "");
+      String hint = getParam(q, "hint", "");
+      int count = 1;
+      try {
+        count = Integer.parseInt(getParam(q, "count", "1"));
+      } catch (NumberFormatException ignored) {
+      }
+      org.json.JSONObject payload =
+          new org.json.JSONObject()
+              .put("text", safeDisplay(text))
+              .put("title", safeDisplay(title))
+              .put("count", count);
+      if (!hint.isEmpty()) payload.put("confirm", new org.json.JSONObject().put("hint", safeDisplay(hint)));
+      com.deepseekharness.app.floatwin.FloatWindow.show(
+          ctx,
+          payload.toString(),
+          new com.deepseekharness.app.floatwin.FloatWindow.Callback() {
+            @Override
+            public void onConfirm(boolean allow) {}
+
+            @Override
+            public void onDismiss() {}
+          });
       return "OK";
     } catch (Throwable e) {
       return "ERROR: " + safeError(e);

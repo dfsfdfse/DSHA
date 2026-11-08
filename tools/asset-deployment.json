@@ -129,7 +129,8 @@
     "runtime-fs",
     "session-compat",
     "web-integration",
-    "destructive-policy"
+    "destructive-policy",
+    "floatwin"
   ],
   "sourceInputs": [
     "offline-rootfs.bin",

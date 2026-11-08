@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RCHA Float</title>
+<style>
+  :root {
+    --bg: rgba(17, 20, 26, .92);
+    --fg: #f2f4f8;
+    --muted: rgba(242, 244, 248, .58);
+    --line: rgba(255, 255, 255, .10);
+    --accent: #7aa2ff;
+    --danger: #ff6b5e;
+    --ok: #46c37b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; }
+  body {
+    font: 13px/1.5 -apple-system, "system-ui", "Segoe UI", Roboto, sans-serif;
+    color: var(--fg);
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #card {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 8px 12px 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .38);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+  }
+  #handle {
+    display: flex; align-items: center; gap: 6px;
+    height: 20px; margin-bottom: 2px;
+    touch-action: none;
+  }
+  #dot {
+    width: 6px; height: 6px; border-radius: 3px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    flex: 0 0 auto;
+  }
+  #title {
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1 1 auto; min-width: 0;
+  }
+  #count {
+    font-size: 10px; color: var(--muted);
+    background: rgba(255,255,255,.07);
+    border-radius: 6px; padding: 1px 5px;
+    flex: 0 0 auto;
+  }
+  #close {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 6px;
+    border: none; background: transparent; color: var(--muted);
+    font-size: 13px; line-height: 1; padding: 0;
+  }
+  #text {
+    font-size: 13px; line-height: 1.45;
+    color: var(--fg);
+    max-height: 3.9em; overflow: hidden;
+    word-break: break-word;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    opacity: .95;
+  }
+  #actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 8px;
+  }
+  #actions[hidden] { display: none; }
+  #hint {
+    flex: 1 1 auto; font-size: 11px; color: #ffcf7a;
+    align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  button.act {
+    border: none; border-radius: 9px; padding: 5px 12px;
+    font-size: 12px; font-weight: 600; color: #fff;
+    flex: 0 0 auto;
+  }
+  #deny { background: rgba(255, 107, 94, .18); color: var(--danger); }
+  #allow { background: var(--ok); }
+</style>
+</head>
+<body>
+<div id="card">
+  <div id="handle">
+    <span id="dot"></span>
+    <span id="title">RCHA</span>
+    <span id="count" hidden></span>
+    <button id="close" aria-label="收起">×</button>
+  </div>
+  <div id="text"></div>
+  <div id="actions" hidden>
+    <span id="hint"></span>
+    <button class="act" id="deny">拒绝</button>
+    <button class="act" id="allow">允许</button>
+  </div>
+</div>
+<script>
+(function () {
+  const post = (method, params) => {
+    try { DshaFloat.postMessage(JSON.stringify({ method, params: params || {} })); } catch (_) {}
+  };
+
+  const el = id => document.getElementById(id);
+  let pending = null;
+
+  // 合帧：一波 token 只布局一次。
+  let frame = 0, next = null;
+  function render(data) {
+    next = data;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const d = next || {};
+      el('title').textContent = d.title || 'RCHA';
+      const count = Number(d.count || 0);
+      if (count > 1) { el('count').textContent = count + ' 个任务'; el('count').hidden = false; }
+      else el('count').hidden = true;
+      el('text').textContent = d.text || '';
+      const confirm = d.confirm;
+      if (confirm && confirm.hint) {
+        el('hint').textContent = confirm.hint;
+        el('actions').hidden = false;
+      } else {
+        el('actions').hidden = true;
+      }
+    });
+  }
+
+  window.dshFloat = {
+    onData: function (json) {
+      let data = json;
+      if (typeof json === 'string') { try { data = JSON.parse(json); } catch (_) { return; } }
+      render(data || {});
+    }
+  };
+
+  // 拖拽：只发位移，位置由原生保存，页面不碰坐标体系。
+  let dragging = false, startY = 0;
+  const handle = el('handle');
+  handle.addEventListener('pointerdown', e => {
+    dragging = true; startY = e.screenY;
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  handle.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    post('drag', { dy: e.screenY - startY });
+  });
+  const end = e => {
+    if (!dragging) return;
+    dragging = false;
+    post('dragEnd', {});
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+
+  el('close').addEventListener('click', e => { e.stopPropagation(); post('dismiss', {}); });
+  el('allow').addEventListener('click', () => post('confirm', { allow: true }));
+  el('deny').addEventListener('click', () => post('confirm', { allow: false }));
+
+  post('ready', {});
+})();
+</script>
+</body>
+</html>
