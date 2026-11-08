@@ -1726,6 +1726,11 @@ public final class FloatWindow {
         }
         case "send": {
           Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) {
+            // 空会话说明页面自己也拿不准，别把记住的那条抹掉
+            String used = p.optString("session", "");
+            if (!used.isEmpty()) setCurrentSession(ctx, used);
+          }
           if (ctx != null)
             writeInbox(
                 ctx,
@@ -1734,6 +1739,11 @@ public final class FloatWindow {
                 p.optString("image", ""),
                 p.optString("file", ""),
                 false);
+          return;
+        }
+        case "current": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) setCurrentSession(ctx, p.optString("session", ""));
           return;
         }
         case "focus": {
@@ -1796,6 +1806,7 @@ public final class FloatWindow {
         payload.put("theme", dark ? "dark" : "light");
         payload.put("tier", tier);
         payload.put("wake", FloatWake.isRunning() ? FloatWake.words(ctx) : "");
+        payload.put("current", currentSession(ctx));
       }
       return payload.toString();
     } catch (Exception ignored) {
@@ -1949,6 +1960,29 @@ public final class FloatWindow {
   /** 唤醒后等页面就绪要做的事：null=没有；""=开始录指令；其它=唤醒词后直接说的指令。 */
   private static String pendingWake;
   private static final String K_VOICE_SEND = "floatwin_voice_autosend";
+  /**
+   * 用户在悬浮窗里认定的「当前会话」：'' 跟随最近活跃、'new' 新会话草稿、其余为会话 id。
+   * 唤醒后语音要落到这个会话上，而不是「最后被问过的那个」。
+   */
+  private static final String K_SESSION = "floatwin_current_session";
+
+  private static String currentSession(Context app) {
+    try {
+      return prefs(app).getString(K_SESSION, "");
+    } catch (Throwable error) {
+      return "";
+    }
+  }
+
+  private static void setCurrentSession(Context app, String session) {
+    if (app == null) return;
+    String value = session == null ? "" : session.trim();
+    try {
+      if (value.equals(currentSession(app))) return;
+      prefs(app).edit().putString(K_SESSION, value).apply();
+    } catch (Throwable ignored) {
+    }
+  }
 
   static boolean voiceAutoSend(Context ctx) {
     return ctx != null && prefs(ctx).getBoolean(K_VOICE_SEND, false);
@@ -2038,6 +2072,11 @@ public final class FloatWindow {
     // 窗口没开或是完整档（dsh 页面没有这套语音界面）：开迷你/标准自绘窗，页面就绪后接着做
     if (realPage) prefs(app).edit().putInt(K_TIER, 1).apply();
     userClosed = false;
+    // 唤醒要先定位到「用户上次用的会话」：它可能不在状态文件里的最近几条里，先请插件读一次历史
+    String wanted = currentSession(app);
+    if (!wanted.isEmpty() && !"new".equals(wanted)) {
+      writeWant(app, "thread", wanted);
+    }
     showCustom(app);
   }
 

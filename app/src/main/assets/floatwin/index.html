@@ -1500,6 +1500,10 @@
   let fwEmpty = true;
   /** '' = 跟随最近活跃的会话；'new' = 新会话草稿；其他 = 用户点选的会话 id。 */
   let selectedId = '';
+  /** 本次页面加载里用户有没有自己点过标签；没点过才采纳宿主记住的「当前会话」。 */
+  let userPicked = false;
+  /** 已经向插件要过历史的会话，避免每次推送都重复请求。 */
+  const askedCurrent = new Set();
   /** 发了「新会话」的第一句后，等新会话出现在状态里再切过去。 */
   let newSince = null;
   const askedThread = new Set();
@@ -1529,6 +1533,28 @@
     lastDrag = -1;
     if (!pendingImage) el('ask').placeholder = placeholderNow();
     renderFw();
+  }
+
+  /** 把宿主记住的会话接回来：唤醒/重开窗口后落到同一个会话，而不是最后被问过的那个。 */
+  function adoptCurrent() {
+    if (userPicked) return;
+    const want = typeof state.current === 'string' ? state.current : '';
+    if (!want || want === selectedId) return;
+    if (want === 'new') { applyAdopted('new'); return; }
+    const known = (state.tasks || []).some(t => t.id === want) || (state.threads || []).some(t => t.id === want);
+    if (known) { applyAdopted(want); return; }
+    // 不在状态文件里（不是最近活跃的那几条）：请插件读一次历史，读到了下一帧就会命中
+    if (!askedCurrent.has(want)) {
+      askedCurrent.add(want);
+      post('thread', { session: want });
+    }
+  }
+
+  function applyAdopted(id) {
+    selectedId = id;
+    if (!pendingImage && !document.body.classList.contains('voice-on')) {
+      el('ask').placeholder = placeholderNow();
+    }
   }
 
   function currentTask() {
@@ -1637,6 +1663,8 @@
       post('thread', { session: id });
     }
     selectedId = id;
+    userPicked = true;
+    post('current', { session: id });
     newSince = null;
     el('tail').classList.remove('open');
     el('think-row').classList.remove('open');
@@ -1921,9 +1949,15 @@
 
   function renderFw() {
     if (!isFw()) return;
+    adoptCurrent();
     if (newSince) {
       const fresh = (state.tasks || []).find(t => !newSince.has(t.id));
-      if (fresh) { selectedId = fresh.id; newSince = null; }
+      if (fresh) {
+        selectedId = fresh.id;
+        newSince = null;
+        userPicked = true;
+        post('current', { session: fresh.id });
+      }
     }
     const task = currentTask();
     const live = !!(task && !task.done);
@@ -2023,6 +2057,8 @@
         models: Array.isArray(v.models) ? v.models : [],
         commands: Array.isArray(v.commands) ? v.commands : (state.commands || []),
         threads,
+        // 宿主记住的「当前会话」；没有就沿用上一次的值
+        current: typeof v.current === 'string' ? v.current : (state.current || ''),
       };
       syncBusy(state.tasks.some(t => !t.done));
       const tr = el('tabrow'); if (tr) tr.hidden = false;
@@ -2400,6 +2436,7 @@
     ask.blur();
     post('focus', { value: false });
     post('send', { text, image, file, session });
+    if (session && session !== 'new') { selectedId = session; post('current', { session }); }
     setSending(true);
     if (el('cmd-menu')) el('cmd-menu').hidden = true;
     appendEcho(text, !!(image || file));
