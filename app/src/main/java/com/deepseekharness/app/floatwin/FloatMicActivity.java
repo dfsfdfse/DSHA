@@ -11,7 +11,7 @@ import android.view.WindowManager;
  * 悬浮窗语音的透明壳：让应用短暂处于前台，以便
  * ① 没有麦克风权限时直接弹系统授权框；
  * ② 启动 microphone 前台服务（后台启动会被系统拒绝或拿到静音数据）。
- * 录音开始后由 {@link FloatWindow} 关闭本页；外部触摸照常穿透到下面的应用。
+ * 服务就绪后由 {@link FloatWindow} 关闭本页；外部触摸照常穿透到下面的应用。
  */
 public final class FloatMicActivity extends Activity {
   private static final int REQUEST = 43;
@@ -31,12 +31,27 @@ public final class FloatMicActivity extends Activity {
     startMic();
   }
 
+  private boolean wakeMode() {
+    String mode = getIntent() == null ? null : getIntent().getStringExtra(FloatMicService.EXTRA_MODE);
+    return FloatMicService.MODE_WAKE.equals(mode);
+  }
+
+  private void fail(boolean denied) {
+    if (wakeMode()) FloatWindow.onWakeService(false);
+    else if (denied) FloatWindow.onMicDenied();
+    else FloatWindow.onMicService(false);
+    finish();
+  }
+
   private void startMic() {
     try {
-      startForegroundService(new Intent(this, FloatMicService.class));
+      startForegroundService(
+          new Intent(this, FloatMicService.class)
+              .putExtra(
+                  FloatMicService.EXTRA_MODE,
+                  wakeMode() ? FloatMicService.MODE_WAKE : FloatMicService.MODE_REC));
     } catch (Throwable error) {
-      FloatWindow.onMicService(false);
-      finish();
+      fail(false);
     }
   }
 
@@ -46,8 +61,7 @@ public final class FloatMicActivity extends Activity {
     if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
       startMic();
     } else {
-      FloatWindow.onMicDenied();
-      finish();
+      fail(true);
     }
   }
 
@@ -57,7 +71,7 @@ public final class FloatMicActivity extends Activity {
     super.onDestroy();
   }
 
-  /** 录音已开始（或放弃），关掉透明页。 */
+  /** 服务已就绪（或放弃），关掉透明页。 */
   static void close() {
     FloatMicActivity a = current;
     current = null;

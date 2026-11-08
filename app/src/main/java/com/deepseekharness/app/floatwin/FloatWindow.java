@@ -260,6 +260,7 @@ public final class FloatWindow {
     main.post(
         () -> {
           if (!com.deepseekharness.app.OverlayController.permitted(app)) return;
+          ensureWake(app);
           // 档位决定页面：3 档直接是 dsh 页面；1、2 档是自绘页（dsh 没起来时 3 档退回 2 档）。
           int t = tierPref(app);
           if (t == 3 && webUrl(app) != null) {
@@ -453,7 +454,7 @@ public final class FloatWindow {
   }
 
   /** rootfs 里的 /root/.dsh/<name>；环境没起来时返回 null。 */
-  private static File guestFile(Context ctx, String name) {
+  static File guestFile(Context ctx, String name) {
     try {
       com.deepseekharness.app.core.HarnessController hc =
           com.deepseekharness.app.core.HarnessController.get(ctx);
@@ -466,7 +467,7 @@ public final class FloatWindow {
     }
   }
 
-  private static String readText(File file) {
+  static String readText(File file) {
     try (java.io.FileInputStream in = new java.io.FileInputStream(file);
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
       byte[] buffer = new byte[8192];
@@ -949,6 +950,39 @@ public final class FloatWindow {
       }
     }
 
+    // ── 语音
+    body.addView(section(app, "语音", tertiary));
+    body.addView(
+        switchRow(
+            app,
+            "录完直接发送",
+            prefs(app).getBoolean(K_VOICE_SEND, false),
+            fg,
+            tertiary,
+            accent,
+            hover,
+            on -> prefs(app).edit().putBoolean(K_VOICE_SEND, on).apply()),
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 36)));
+    body.addView(
+        switchRow(
+            app,
+            "语音唤醒",
+            FloatWake.enabled(app),
+            fg,
+            tertiary,
+            accent,
+            hover,
+            on -> setWakeEnabled(app, on)),
+        new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 36)));
+    body.addView(wakeWordsRow(app, fg, muted, tertiary, accent, field, line, hover));
+    body.addView(
+        hint(
+            app,
+            "语音唤醒：RCHA 在后台时说唤醒词即弹出悬浮窗并开始听；唤醒词后直接接指令也可以"
+                + "（如「呼叫cc 看看今天的日程」）。用本机 SenseVoice 识别，不上传；常驻麦克风会多耗电。"
+                + "多个唤醒词用逗号分隔。",
+            tertiary));
+
     // ── 窗口操作
     body.addView(section(app, "窗口", tertiary));
     body.addView(
@@ -1033,6 +1067,126 @@ public final class FloatWindow {
           evaluate("window.dshFloat&&window.dshFloat.applyConfig(" + JSONObject.quote(joined) + ")");
         });
     return view;
+  }
+
+  /** 开/关一行：右侧显示开/关，点整行切换。 */
+  private static View switchRow(
+      Context app,
+      String name,
+      boolean initial,
+      int fgColor,
+      int offColor,
+      final int onColor,
+      int hover,
+      final java.util.function.Consumer<Boolean> change) {
+    final boolean[] on = {initial};
+    LinearLayout view = row(app);
+    view.setBackground(pressable(app, hover, 5));
+    view.addView(
+        label(app, name, 13, fgColor, false),
+        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    final android.widget.TextView trail = label(app, on[0] ? "开" : "关", 12, on[0] ? onColor : offColor, false);
+    view.addView(
+        trail,
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    view.setOnClickListener(
+        v -> {
+          on[0] = !on[0];
+          trail.setText(on[0] ? "开" : "关");
+          trail.setTextColor(on[0] ? onColor : offColor);
+          change.accept(on[0]);
+        });
+    return view;
+  }
+
+  /** 唤醒词：显示当前值，点开就地编辑（窗口临时可获焦弹键盘）。 */
+  private static View wakeWordsRow(
+      final Context app, int fg, int muted, int tertiary, int accent, int field, int line, int hover) {
+    final LinearLayout box = new LinearLayout(app);
+    box.setOrientation(LinearLayout.VERTICAL);
+    final LinearLayout show = row(app);
+    show.setBackground(pressable(app, hover, 5));
+    show.addView(
+        label(app, "唤醒词", 13, fg, false),
+        new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    show.addView(
+        label(app, FloatWake.words(app), 12, muted, false),
+        new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    box.addView(
+        show, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 36)));
+    show.setOnClickListener(
+        v -> {
+          box.removeAllViews();
+          LinearLayout edit = row(app);
+          final android.widget.EditText input = new android.widget.EditText(app);
+          input.setSingleLine(true);
+          input.setText(FloatWake.words(app));
+          input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+          input.setTextColor(fg);
+          input.setHintTextColor(tertiary);
+          input.setHint(FloatWake.DEFAULT_WORDS);
+          input.setBackground(round(app, field, 4, line, 1));
+          input.setPadding(dp(app, 8), 0, dp(app, 8), 0);
+          input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+          edit.addView(input, new LinearLayout.LayoutParams(0, dp(app, 32), 1f));
+          android.widget.TextView save = label(app, "保存", 13, accent, false);
+          save.setGravity(Gravity.CENTER);
+          save.setPadding(dp(app, 12), 0, dp(app, 4), 0);
+          save.setBackground(pressable(app, hover, 5));
+          edit.addView(
+              save,
+              new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(app, 32)));
+          box.addView(
+              edit,
+              new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 40)));
+          final Runnable commit =
+              () -> {
+                String value = input.getText() == null ? "" : input.getText().toString().trim();
+                prefs(app)
+                    .edit()
+                    .putString(FloatWake.K_WAKE_WORDS, value.isEmpty() ? FloatWake.DEFAULT_WORDS : value)
+                    .apply();
+                try {
+                  InputMethodManager imm =
+                      (InputMethodManager) app.getSystemService(Context.INPUT_METHOD_SERVICE);
+                  if (imm != null) imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
+                } catch (Throwable ignored) {
+                }
+                applyFocusable(false);
+                // 通知栏文字跟着更新
+                if (FloatWake.isRunning()) {
+                  try {
+                    app.startService(
+                        new android.content.Intent(app, FloatMicService.class)
+                            .putExtra(FloatMicService.EXTRA_MODE, FloatMicService.MODE_WAKE));
+                  } catch (Throwable ignored) {
+                  }
+                }
+                refreshSettings(app);
+              };
+          save.setOnClickListener(x -> commit.run());
+          input.setOnEditorActionListener(
+              (tv, action, event) -> {
+                commit.run();
+                return true;
+              });
+          applyFocusable(true);
+          input.requestFocus();
+          input.setSelection(input.getText().length());
+          main.postDelayed(
+              () -> {
+                try {
+                  InputMethodManager imm =
+                      (InputMethodManager) app.getSystemService(Context.INPUT_METHOD_SERVICE);
+                  if (imm != null) imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+                } catch (Throwable ignored) {
+                }
+              },
+              150);
+        });
+    return box;
   }
 
   private static java.util.List<String> hiddenBlocks(Context app) {
@@ -1424,6 +1578,7 @@ public final class FloatWindow {
       switch (method) {
         case "ready":
           pushPayload();
+          if (pendingWake != null) main.postDelayed(FloatWindow::runPendingWake, 350);
           {
             Context ctx = web == null ? null : web.getContext();
             String blocks = ctx == null ? null : prefs(ctx).getString("floatwin_blocks", null);
@@ -1709,6 +1864,11 @@ public final class FloatWindow {
       return;
     }
     if (micStarting) return;
+    if (FloatMicService.foreground) {
+      // 语音唤醒常驻的 microphone 前台服务已在：直接录
+      beginRecording();
+      return;
+    }
     // 悬浮窗时应用在后台，直接录只会拿到全零数据：先经透明壳拿前台身份，
     // 申请权限并启动 microphone 前台服务，服务就绪后才真正开录。
     micStarting = true;
@@ -1765,13 +1925,133 @@ public final class FloatWindow {
         });
   }
 
+  /** 一段录音结束：唤醒开着就把麦克风还给唤醒监听，否则停掉前台服务。 */
   private static void stopMicService() {
-    Context ctx = web == null ? null : web.getContext();
+    Context ctx = anyCtx();
+    FloatWake.resume();
     if (ctx == null) return;
+    FloatMicService.recDone(ctx);
+  }
+
+  private static Context anyCtx() {
+    if (web != null) return web.getContext().getApplicationContext();
+    return watchCtx != null ? watchCtx : wakeCtx;
+  }
+
+  // ───────────────────────────── 语音唤醒 ─────────────────────────────
+  private static Context wakeCtx;
+  /** 唤醒后等页面就绪要做的事：null=没有；""=开始录指令；其它=唤醒词后直接说的指令。 */
+  private static String pendingWake;
+  private static final String K_VOICE_SEND = "floatwin_voice_autosend";
+
+  static boolean voiceAutoSend(Context ctx) {
+    return ctx != null && prefs(ctx).getBoolean(K_VOICE_SEND, false);
+  }
+
+  /** 设置页 / 通知栏开关语音唤醒。开要经透明壳拿前台身份启动 microphone 前台服务。 */
+  static void setWakeEnabled(Context context, boolean on) {
+    final Context app = context.getApplicationContext();
+    wakeCtx = app;
+    main.post(
+        () -> {
+          if (!on) {
+            prefs(app).edit().putBoolean(FloatWake.K_WAKE, false).apply();
+            FloatWake.stop();
+            if (!recording && !micStarting) FloatMicService.stop(app);
+            refreshSettings(app);
+            return;
+          }
+          prefs(app).edit().putBoolean(FloatWake.K_WAKE, true).apply();
+          launchMicShell(app, FloatMicService.MODE_WAKE);
+        });
+  }
+
+  /** 唤醒开着但服务没在跑（被系统回收 / 重启过）：用户打开悬浮窗时补起来。 */
+  private static void ensureWake(Context app) {
+    if (!FloatWake.enabled(app) || FloatWake.isRunning()) return;
+    if (recording || micStarting) return;
+    wakeCtx = app;
+    launchMicShell(app, FloatMicService.MODE_WAKE);
+  }
+
+  private static void launchMicShell(Context app, String mode) {
     try {
-      ctx.stopService(new android.content.Intent(ctx, FloatMicService.class));
+      app.startActivity(
+          new android.content.Intent(app, FloatMicActivity.class)
+              .putExtra(FloatMicService.EXTRA_MODE, mode)
+              .addFlags(
+                  android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                      | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION
+                      | android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS));
+    } catch (Throwable error) {
+      if (FloatMicService.MODE_WAKE.equals(mode)) onWakeService(false);
+    }
+  }
+
+  static void onWakeService(boolean ok) {
+    main.post(
+        () -> {
+          FloatMicActivity.close();
+          Context app = anyCtx();
+          if (app == null) return;
+          if (!ok) {
+            prefs(app).edit().putBoolean(FloatWake.K_WAKE, false).apply();
+            toast(app, "语音唤醒启动失败（需要麦克风权限）");
+          } else {
+            toast(app, "语音唤醒已开启：说「" + FloatWake.words(app) + "」");
+          }
+          refreshSettings(app);
+        });
+  }
+
+  /** 听到唤醒词：提示音 + 震动，打开悬浮窗，然后录指令或直接用唤醒词后面的话。 */
+  static void onWake(Context app, String command) {
+    wakeCtx = app;
+    if (recording || micStarting) return;
+    try {
+      android.media.ToneGenerator tone =
+          new android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 70);
+      tone.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 160);
+      main.postDelayed(tone::release, 400);
     } catch (Throwable ignored) {
     }
+    try {
+      android.os.Vibrator vib = app.getSystemService(android.os.Vibrator.class);
+      if (vib != null) vib.vibrate(android.os.VibrationEffect.createOneShot(40, 120));
+    } catch (Throwable ignored) {
+    }
+    pendingWake = command == null ? "" : command;
+    if (web != null && !realPage) {
+      main.postDelayed(FloatWindow::runPendingWake, 260);
+      return;
+    }
+    // 窗口没开或是完整档（dsh 页面没有这套语音界面）：开迷你/标准自绘窗，页面就绪后接着做
+    if (realPage) prefs(app).edit().putInt(K_TIER, 1).apply();
+    userClosed = false;
+    showCustom(app);
+  }
+
+  private static void runPendingWake() {
+    String command = pendingWake;
+    pendingWake = null;
+    if (command == null || web == null || realPage) return;
+    if (command.isEmpty()) {
+      startVoice();
+    } else {
+      evaluate(
+          "window.dshFloat&&window.dshFloat.onVoice("
+              + JSONObject.quote(command)
+              + ","
+              + (voiceAutoSend(anyCtx()) ? "true" : "false")
+              + ")");
+    }
+  }
+
+  /** 设置页开着就重建一次，让开关显示最新状态。 */
+  private static void refreshSettings(Context app) {
+    if (settingsPanel == null) return;
+    closeSettings();
+    toggleSettings(app);
   }
 
   private static void beginRecording() {
@@ -1780,6 +2060,7 @@ public final class FloatWindow {
       stopMicService();
       return;
     }
+    FloatWake.pause();
     if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
         != android.content.pm.PackageManager.PERMISSION_GRANTED) {
       stopMicService();
@@ -2033,7 +2314,12 @@ public final class FloatWindow {
       } else if (!error.isEmpty()) {
         evaluate("window.dshFloat&&window.dshFloat.onVoiceError(" + JSONObject.quote(error) + ")");
       } else if (!text.isEmpty()) {
-        evaluate("window.dshFloat&&window.dshFloat.onVoice(" + JSONObject.quote(text) + ")");
+        evaluate(
+            "window.dshFloat&&window.dshFloat.onVoice("
+                + JSONObject.quote(text)
+                + ","
+                + (voiceAutoSend(ctx) ? "true" : "false")
+                + ")");
       }
     } catch (Throwable ignored) {
     }

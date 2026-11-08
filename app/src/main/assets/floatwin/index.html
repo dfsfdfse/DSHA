@@ -1375,12 +1375,17 @@
       post('activity', {});
       post('resize', {});
     },
-    onVoice: function (text) {
+    onVoice: function (text, autoSend) {
       const box = el('ask');
       voiceUi('idle');
       if (!text) return;
       box.value = (box.value ? box.value + ' ' : '') + text;
       box.dispatchEvent(new Event('input'));
+      if (autoSend) {
+        // 设置里开了「录完直接发送」：不弹键盘，直接投到当前会话
+        sendText();
+        return;
+      }
       post('focus', { value: true });
       box.focus();
     },

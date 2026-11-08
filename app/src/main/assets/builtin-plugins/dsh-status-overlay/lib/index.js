@@ -37,6 +37,8 @@ const FLOAT_INBOX = '/root/.dsh/float-inbox.json'
 /** 语音：宿主录音写 WAV(base64)，插件交给 dsh 的 speechToText 转写后回写结果。 */
 const VOICE_IN = '/root/.dsh/float-voice.json'
 const VOICE_OUT = '/root/.dsh/float-voice-result.json'
+const WAKE_IN = '/root/.dsh/float-wake.json'
+const WAKE_OUT = '/root/.dsh/float-wake-result.json'
 /** 富内容悬浮窗：只发「重要信息 + 步骤」，不发原始 token。 */
 const FLOAT = 'http://127.0.0.1:3090/app/float'
 const TOKEN_PATH = '/root/.dsh/.bridge_token'
@@ -1115,27 +1117,42 @@ export function apply(ctx) {
 
 let stt
 
-/** 语音转写：用 dsh 自己的 speechToText 服务（SenseVoice 等），不是系统识别。 */
+/** 语音转写：用 dsh 自己的 speechToText 服务（SenseVoice 等），不是系统识别。
+ *  两路：悬浮窗录的一段话（float-voice）和语音唤醒切出的短句（float-wake）。 */
 function startVoice(ctx) {
-  let lastSeq = 0
-  try {
-    const seed = JSON.parse(readFileSync(VOICE_IN, 'utf8'))
-    if (seed && Number.isFinite(Number(seed.seq))) lastSeq = Number(seed.seq)
-  } catch { /* 首次没有录音 */ }
   ctx.inject(['speechToText'], scoped => {
     stt = scoped.speechToText
     return () => { stt = undefined }
   })
+  const timers = [
+    watchVoice(ctx, VOICE_IN, VOICE_OUT, 400),
+    watchVoice(ctx, WAKE_IN, WAKE_OUT, 250),
+  ]
+  ctx.on('dispose', () => {
+    for (const timer of timers) {
+      try { clearInterval(timer) } catch { }
+    }
+  })
+}
+
+function watchVoice(ctx, input, output, every) {
+  let lastSeq = 0
+  let busy = false
+  try {
+    const seed = JSON.parse(readFileSync(input, 'utf8'))
+    if (seed && Number.isFinite(Number(seed.seq))) lastSeq = Number(seed.seq)
+  } catch { /* 首次没有录音 */ }
   const write = result => {
     try {
-      const tmp = VOICE_OUT + '.' + process.pid + '.tmp'
+      const tmp = output + '.' + process.pid + '.tmp'
       writeFileSync(tmp, JSON.stringify(result), { mode: 0o600 })
-      renameSync(tmp, VOICE_OUT)
+      renameSync(tmp, output)
     } catch { /* 结果写不进去就保持安静 */ }
   }
   const timer = setInterval(async () => {
+    if (busy) return
     try {
-      const message = JSON.parse(readFileSync(VOICE_IN, 'utf8'))
+      const message = JSON.parse(readFileSync(input, 'utf8'))
       const seq = Number(message?.seq)
       if (!Number.isFinite(seq) || seq <= lastSeq || typeof message.audio !== 'string') return
       if (!stt) {
@@ -1146,6 +1163,7 @@ function startVoice(ctx) {
         return
       }
       lastSeq = seq
+      busy = true
       const audio = Buffer.from(message.audio, 'base64')
       try {
         const spec = stt.resolve({ audio, language: 'zh' })
@@ -1157,13 +1175,13 @@ function startVoice(ctx) {
         write({ seq, text: String(text || '') })
       } catch (error) {
         write({ seq, error: '语音转写失败：' + String(error?.message || error).slice(0, 80) })
+      } finally {
+        busy = false
       }
     } catch { /* 轮询本身出错不影响 agent */ }
-  }, 400)
+  }, every)
   if (typeof timer?.unref === 'function') timer.unref()
-  ctx.on('dispose', () => {
-    try { clearInterval(timer) } catch { }
-  })
+  return timer
 }
 
 /** 悬浮窗里的输入框 → 会话：宿主把文本写进 FLOAT_INBOX，这里轮询并投递。 */
