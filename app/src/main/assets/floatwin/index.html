@@ -336,6 +336,16 @@
   }
 
   window.dshFloat = {
+    /** 内置能力调用：hidden 是逗号分隔的区块名（tabs/usage/compose），空串表示全部显示。 */
+    applyConfig: function (hidden) {
+      const names = String(hidden || '').split(',').map(x => x.trim()).filter(Boolean);
+      Object.keys(blocks).forEach(k => {
+        document.body.classList.toggle(blocks[k], names.includes(k));
+      });
+      try { localStorage.setItem('floatwin_blocks', JSON.stringify({})); } catch (_) {}
+      syncSwitches();
+      post('resize', {});
+    },
     toggleMenu: function () {
       const menu = el('menu');
       menu.hidden = !menu.hidden;

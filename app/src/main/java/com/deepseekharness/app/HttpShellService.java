@@ -1790,6 +1790,20 @@ public final class HttpShellService {
         return "OK";
       }
       String id = getParam(q, "id", "");
+      String panel = getParam(q, "panel", "");
+      String alphaText = getParam(q, "alpha", "");
+      String blocks = getParam(q, "blocks", "");
+      int alphaValue = 0;
+      try {
+        alphaValue = alphaText.isEmpty() ? 0 : Integer.parseInt(alphaText.trim());
+      } catch (NumberFormatException ignored) {
+      }
+      if ("chat".equals(panel)) {
+        if (!OverlayController.permitted(ctx)) return "NO_PERMISSION";
+        com.deepseekharness.app.floatwin.FloatWindow.showCustom(
+            ctx, alphaValue, getParam(q, "blocks", null));
+        return "OK chat";
+      }
       String url = getParam(q, "url", "");
       String html = getParam(q, "html", "");
       if (url.isEmpty() && html.isEmpty()) return "NO_URL";

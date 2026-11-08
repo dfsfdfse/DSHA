@@ -179,6 +179,16 @@ public final class FloatWindow {
 
   /** 打开自绘聊天窗（入口按钮用）：绝不加载 dsh 页面，先用容器里最新的状态渲染。 */
   public static void showCustom(Context context) {
+    showCustom(context, 0, null);
+  }
+
+  /**
+   * 打开自绘聊天窗，并可选地设置透明度与隐藏区块。
+   *
+   * @param alpha 0=保持现有设置；20-100 设置透明度
+   * @param hiddenBlocks 逗号分隔的区块名（tabs/usage/compose），null=保持现有显隐
+   */
+  public static void showCustom(Context context, int alpha, String hiddenBlocks) {
     if (context == null) return;
     final Context app = context.getApplicationContext();
     main.post(
@@ -188,6 +198,14 @@ public final class FloatWindow {
           if (web == null && !create(app, true)) return;
           realPage = false;
           userClosed = false;
+          if (alpha > 0) {
+            prefs(app).edit().putInt("floatwin_alpha", Math.max(20, Math.min(100, alpha))).apply();
+            if (container != null) container.setAlpha(Math.max(20, Math.min(100, alpha)) / 100f);
+          }
+          if (hiddenBlocks != null) {
+            prefs(app).edit().putString("floatwin_blocks", hiddenBlocks).apply();
+            evaluate("window.dshFloat&&window.dshFloat.applyConfig(" + JSONObject.quote(hiddenBlocks) + ")");
+          }
           File state = guestFile(app, GUEST_STATE);
           String json = state != null && state.isFile() ? readText(state) : null;
           if (json != null && !json.isEmpty() && !json.contains("\"clear\"")) {
@@ -655,6 +673,13 @@ public final class FloatWindow {
       switch (method) {
         case "ready":
           pushPayload();
+          {
+            Context ctx = web == null ? null : web.getContext();
+            String blocks = ctx == null ? null : prefs(ctx).getString("floatwin_blocks", null);
+            if (blocks != null) {
+              evaluate("window.dshFloat&&window.dshFloat.applyConfig(" + JSONObject.quote(blocks) + ")");
+            }
+          }
           reply.postMessage("{\"ok\":true}");
           return;
         case "busy":
