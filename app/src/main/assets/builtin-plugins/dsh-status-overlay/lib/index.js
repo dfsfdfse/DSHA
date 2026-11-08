@@ -30,6 +30,8 @@ export const name = 'dsh-status-overlay'
 
 /** 桥地址（App 侧只监听回环，容器与宿主共享网络命名空间，所以直接连得上）。 */
 const BRIDGE = 'http://127.0.0.1:3090/app/overlay'
+/** 富内容悬浮窗：只发「重要信息 + 步骤」，不发原始 token。 */
+const FLOAT = 'http://127.0.0.1:3090/app/float'
 const TOKEN_PATH = '/root/.dsh/.bridge_token'
 /** 合并窗口：120ms 一次，肉眼看起来仍是连续流动的。 */
 const FLUSH_MS = 120
@@ -203,10 +205,48 @@ async function send(key, kind, text) {
   }
 }
 
+/** 把会话的「状态 + 步骤」发给富内容悬浮窗；200ms 合帧，避免逐 token 布局。 */
+function scheduleFloat(key, b) {
+  if (b.ftimer) return
+  b.ftimer = setTimeout(() => {
+    b.ftimer = undefined
+    void sendFloat(key, b)
+  }, 200)
+  if (typeof b.ftimer?.unref === 'function') b.ftimer.unref()
+}
+
+async function sendFloat(key, b) {
+  const tok = bridgeToken()
+  if (!tok) return
+  const payload = JSON.stringify({
+    title: titles.get(key) || '',
+    status: b.status || '',
+    detail: b.detail || '',
+    steps: b.steps.slice(-6),
+    count: 1,
+  })
+  try {
+    await fetch(`${FLOAT}?json=${encodeURIComponent(payload)}`, {
+      headers: { 'X-Token': tok },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch {
+    // 悬浮窗不是关键路径，失败静默
+  }
+}
+
+function pushStep(b, text) {
+  const line = String(text || '').trim()
+  if (!line) return
+  b.steps.push(line.slice(0, 120))
+  if (b.steps.length > 8) b.steps.splice(0, b.steps.length - 8)
+}
+
 function bucket(key) {
   let b = state.get(key)
   if (!b) {
-    b = { line: '', think: '', timer: undefined, pending: false }
+    b = { line: '', think: '', timer: undefined, pending: false,
+          status: '', detail: '', steps: [], ftimer: undefined }
     state.set(key, b)
     // 会话数量不该无限涨（异常情况下也就几十个）
     if (state.size > 16) {
@@ -273,7 +313,10 @@ export function apply(ctx) {
           schedule(key, 'reasoning', () => b.think)
         } else {
           b.line = tail(b.line + piece)
-          schedule(key, 'text', () => b.line)
+          // 不把原始 token 送到悬浮窗：只表达「正在生成」。
+          b.status = '正在生成回复…'
+          b.detail = ''
+          scheduleFloat(key, b)
         }
         return
       }
@@ -291,7 +334,10 @@ export function apply(ctx) {
           clearTimeout(b.timer)
           b.timer = undefined
         }
-        void send(key, 'tool', b.line)
+        b.status = label
+        b.detail = detail || ''
+        pushStep(b, b.line)
+        scheduleFloat(key, b)
         return
       }
 
@@ -309,7 +355,9 @@ export function apply(ctx) {
           b.timer = undefined
         }
         // 留着最后一句让它自然淡出（App 侧几秒后自己收起来）
-        void send(key, 'done', b.line)
+        b.status = (b.line || '').replace(/\s+/g, ' ').trim().slice(0, 90) || '本轮完成'
+        b.detail = ''
+        scheduleFloat(key, b)
         state.delete(key)
       }
     } catch {

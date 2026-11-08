@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>RCHA Float</title>
+<title>RCHA</title>
 <style>
   :root {
-    --bg: rgba(17, 20, 26, .92);
+    --bg: rgba(17, 20, 26, .94);
     --fg: #f2f4f8;
-    --muted: rgba(242, 244, 248, .58);
-    --line: rgba(255, 255, 255, .10);
+    --muted: rgba(242, 244, 248, .55);
+    --line: rgba(255, 255, 255, .09);
     --accent: #7aa2ff;
     --danger: #ff6b5e;
     --ok: #46c37b;
@@ -26,60 +26,79 @@
     background: var(--bg);
     border: 1px solid var(--line);
     border-radius: 16px;
-    padding: 8px 12px 10px;
+    padding: 9px 12px 10px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, .38);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     overflow: hidden;
+    transition: padding .18s ease;
   }
-  #handle {
-    display: flex; align-items: center; gap: 6px;
-    height: 20px; margin-bottom: 2px;
+  #head {
+    display: flex; align-items: flex-start; gap: 8px;
     touch-action: none;
   }
   #dot {
-    width: 6px; height: 6px; border-radius: 3px;
+    width: 6px; height: 6px; border-radius: 3px; margin-top: 7px;
     background: var(--accent);
     box-shadow: 0 0 8px var(--accent);
     flex: 0 0 auto;
   }
+  #main { flex: 1 1 auto; min-width: 0; }
+  #titleRow { display: flex; align-items: center; gap: 6px; }
   #title {
-    font-size: 11px; color: var(--muted);
+    font-size: 11px; color: var(--muted); letter-spacing: .2px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    flex: 1 1 auto; min-width: 0;
   }
   #count {
     font-size: 10px; color: var(--muted);
     background: rgba(255,255,255,.07);
-    border-radius: 6px; padding: 1px 5px;
-    flex: 0 0 auto;
+    border-radius: 6px; padding: 1px 5px; flex: 0 0 auto;
   }
-  #close {
-    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 6px;
+  #status {
+    font-size: 13.5px; line-height: 1.45; color: var(--fg);
+    margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #detail {
+    font-size: 11.5px; color: var(--muted); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #detail[hidden] { display: none; }
+  #chevron {
+    flex: 0 0 auto; width: 22px; height: 22px; margin-top: 2px;
     border: none; background: transparent; color: var(--muted);
-    font-size: 13px; line-height: 1; padding: 0;
+    font-size: 11px; line-height: 1; border-radius: 7px;
+    transition: transform .18s ease;
   }
-  #text {
-    font-size: 13px; line-height: 1.45;
-    color: var(--fg);
-    max-height: 3.9em; overflow: hidden;
+  #chevron.open { transform: rotate(180deg); }
+  #close {
+    flex: 0 0 auto; width: 20px; height: 20px; margin-top: 2px;
+    border: none; background: transparent; color: var(--muted);
+    font-size: 14px; line-height: 1; padding: 0;
+  }
+  #body {
+    max-height: 0; overflow: hidden;
+    transition: max-height .2s ease, margin-top .2s ease;
+  }
+  #body.open { max-height: 220px; margin-top: 8px; }
+  #steps { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+  #steps li {
+    font-size: 11.5px; color: var(--muted); line-height: 1.45;
+    padding: 3px 0 3px 12px; position: relative;
     word-break: break-word;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
-    opacity: .95;
   }
-  #actions {
-    display: flex; gap: 8px; justify-content: flex-end;
-    margin-top: 8px;
+  #steps li::before {
+    content: ""; position: absolute; left: 2px; top: 10px;
+    width: 4px; height: 4px; border-radius: 2px; background: var(--line);
   }
+  #steps li:last-child { color: var(--fg); }
+  #actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
-    flex: 1 1 auto; font-size: 11px; color: #ffcf7a;
-    align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1 1 auto; font-size: 11px; color: #ffcf7a; align-self: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   button.act {
     border: none; border-radius: 9px; padding: 5px 12px;
-    font-size: 12px; font-weight: 600; color: #fff;
-    flex: 0 0 auto;
+    font-size: 12px; font-weight: 600; color: #fff; flex: 0 0 auto;
   }
   #deny { background: rgba(255, 107, 94, .18); color: var(--danger); }
   #allow { background: var(--ok); }
@@ -87,13 +106,22 @@
 </head>
 <body>
 <div id="card">
-  <div id="handle">
+  <div id="head">
     <span id="dot"></span>
-    <span id="title">RCHA</span>
-    <span id="count" hidden></span>
+    <div id="main">
+      <div id="titleRow">
+        <span id="title">RCHA</span>
+        <span id="count" hidden></span>
+      </div>
+      <div id="status">就绪</div>
+      <div id="detail" hidden></div>
+    </div>
+    <button id="chevron" aria-label="展开">▾</button>
     <button id="close" aria-label="收起">×</button>
   </div>
-  <div id="text"></div>
+  <div id="body">
+    <ul id="steps"></ul>
+  </div>
   <div id="actions" hidden>
     <span id="hint"></span>
     <button class="act" id="deny">拒绝</button>
@@ -105,29 +133,51 @@
   const post = (method, params) => {
     try { DshaFloat.postMessage(JSON.stringify({ method, params: params || {} })); } catch (_) {}
   };
-
   const el = id => document.getElementById(id);
-  let pending = null;
+  let expanded = false;
+  let latest = {};
 
-  // 合帧：一波 token 只布局一次。
+  function applyExpand() {
+    el('body').classList.toggle('open', expanded);
+    el('chevron').classList.toggle('open', expanded);
+    el('chevron').setAttribute('aria-label', expanded ? '收起' : '展开');
+  }
+
   let frame = 0, next = null;
   function render(data) {
-    next = data;
+    next = data || {};
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       const d = next || {};
+      latest = d;
       el('title').textContent = d.title || 'RCHA';
       const count = Number(d.count || 0);
       if (count > 1) { el('count').textContent = count + ' 个任务'; el('count').hidden = false; }
       else el('count').hidden = true;
-      el('text').textContent = d.text || '';
+      el('status').textContent = d.status || '就绪';
+      if (d.detail) { el('detail').textContent = d.detail; el('detail').hidden = false; }
+      else el('detail').hidden = true;
+
+      const steps = Array.isArray(d.steps) ? d.steps.slice(-12) : [];
+      const list = el('steps');
+      list.textContent = '';
+      for (const step of steps) {
+        const li = document.createElement('li');
+        li.textContent = String(step);
+        list.appendChild(li);
+      }
+      if (steps.length) list.lastChild.scrollIntoView({ block: 'nearest' });
+
       const confirm = d.confirm;
       if (confirm && confirm.hint) {
         el('hint').textContent = confirm.hint;
         el('actions').hidden = false;
-      } else {
-        el('actions').hidden = true;
+      } else el('actions').hidden = true;
+
+      if (typeof d.expanded === 'boolean' && d.expanded !== expanded) {
+        expanded = d.expanded;
+        applyExpand();
       }
     });
   }
@@ -140,26 +190,30 @@
     }
   };
 
-  // 拖拽：只发位移，位置由原生保存，页面不碰坐标体系。
-  let dragging = false, startY = 0;
-  const handle = el('handle');
-  handle.addEventListener('pointerdown', e => {
-    dragging = true; startY = e.screenY;
-    handle.setPointerCapture(e.pointerId);
-    e.preventDefault();
+  // 标题区：轻点展开/收起，拖动移动窗口（超过 5px 判定为拖动，不触发展开）。
+  let dragging = false, moved = false, startY = 0;
+  const head = el('head');
+  head.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    dragging = true; moved = false; startY = e.screenY;
+    head.setPointerCapture(e.pointerId);
   });
-  handle.addEventListener('pointermove', e => {
+  head.addEventListener('pointermove', e => {
     if (!dragging) return;
-    post('drag', { dy: e.screenY - startY });
+    const dy = e.screenY - startY;
+    if (!moved && Math.abs(dy) > 5) moved = true;
+    if (moved) post('drag', { dy });
   });
-  const end = e => {
+  const endDrag = () => {
     if (!dragging) return;
     dragging = false;
-    post('dragEnd', {});
+    if (moved) post('dragEnd', {});
+    else { expanded = !expanded; applyExpand(); }
   };
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
+  head.addEventListener('pointerup', endDrag);
+  head.addEventListener('pointercancel', endDrag);
 
+  el('chevron').addEventListener('click', e => { e.stopPropagation(); expanded = !expanded; applyExpand(); });
   el('close').addEventListener('click', e => { e.stopPropagation(); post('dismiss', {}); });
   el('allow').addEventListener('click', () => post('confirm', { allow: true }));
   el('deny').addEventListener('click', () => post('confirm', { allow: false }));

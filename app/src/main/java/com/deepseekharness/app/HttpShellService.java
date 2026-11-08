@@ -1778,20 +1778,30 @@ public final class HttpShellService {
         com.deepseekharness.app.floatwin.FloatWindow.hide(ctx);
         return "OK";
       }
-      String text = getParam(q, "text", "");
-      String title = getParam(q, "title", "");
-      String hint = getParam(q, "hint", "");
-      int count = 1;
-      try {
-        count = Integer.parseInt(getParam(q, "count", "1"));
-      } catch (NumberFormatException ignored) {
+      // 简单用法：?title=&status=&detail=；复杂内容：?json=<urlencoded JSON>
+      String json = getParam(q, "json", "");
+      org.json.JSONObject payload;
+      if (!json.isEmpty()) {
+        payload = new org.json.JSONObject(json);
+      } else {
+        String status = getParam(q, "status", getParam(q, "text", ""));
+        String title = getParam(q, "title", "");
+        String detail = getParam(q, "detail", "");
+        String hint = getParam(q, "hint", "");
+        int count = 1;
+        try {
+          count = Integer.parseInt(getParam(q, "count", "1"));
+        } catch (NumberFormatException ignored) {
+        }
+        payload =
+            new org.json.JSONObject()
+                .put("status", safeDisplay(status))
+                .put("title", safeDisplay(title))
+                .put("count", count);
+        if (!detail.isEmpty()) payload.put("detail", safeDisplay(detail));
+        if (!hint.isEmpty())
+          payload.put("confirm", new org.json.JSONObject().put("hint", safeDisplay(hint)));
       }
-      org.json.JSONObject payload =
-          new org.json.JSONObject()
-              .put("text", safeDisplay(text))
-              .put("title", safeDisplay(title))
-              .put("count", count);
-      if (!hint.isEmpty()) payload.put("confirm", new org.json.JSONObject().put("hint", safeDisplay(hint)));
       com.deepseekharness.app.floatwin.FloatWindow.show(
           ctx,
           payload.toString(),
