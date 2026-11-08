@@ -171,7 +171,7 @@ public class LaunchFragment extends Fragment {
               return;
             }
             com.deepseekharness.app.floatwin.FloatWindow.resetAutoShow();
-            com.deepseekharness.app.floatwin.FloatWindow.showRealPage(requireContext());
+            com.deepseekharness.app.floatwin.FloatWindow.showCustom(requireContext());
           });
     }
 

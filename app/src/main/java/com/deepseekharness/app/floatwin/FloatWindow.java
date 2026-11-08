@@ -152,22 +152,7 @@ public final class FloatWindow {
 
   /** dsh 一起好就把真实页面塞进悬浮窗 —— 输入栏、附件、模型、语音都是原生的。 */
   private static void pollReal() {
-    Context ctx = watchCtx;
-    if (ctx == null) return;
-    SharedPreferences p = prefs(ctx);
-    if (!p.getBoolean("floatwin_real", false)) return;
-    if (!p.getBoolean("floatwin_enabled", true)) return;
-    if (!com.deepseekharness.app.OverlayController.permitted(ctx)) return;
-    String url = webUrl(ctx);
-    if (url == null) {
-      // Web 停了：下次起来重新弹，用户这次关掉的状态不该永久保留。
-      lastWebUrl = "";
-      userClosed = false;
-      return;
-    }
-    if (!url.equals(lastWebUrl)) lastWebUrl = url;
-    // 只在用户点入口时打开；dsh 回答不再自动弹窗。
-    if (web != null) return;
+    // 悬浮窗只从入口打开：这里不再自动弹窗，也不再切到 dsh 真页面。
   }
 
   private static String webUrl(Context ctx) {
@@ -189,6 +174,28 @@ public final class FloatWindow {
         () -> {
           userClosed = false;
           lastWebUrl = "";
+        });
+  }
+
+  /** 打开自绘聊天窗（入口按钮用）：绝不加载 dsh 页面，先用容器里最新的状态渲染。 */
+  public static void showCustom(Context context) {
+    if (context == null) return;
+    final Context app = context.getApplicationContext();
+    main.post(
+        () -> {
+          if (!com.deepseekharness.app.OverlayController.permitted(app)) return;
+          if (web != null && realPage) dismiss();
+          if (web == null && !create(app, true)) return;
+          realPage = false;
+          userClosed = false;
+          File state = guestFile(app, GUEST_STATE);
+          String json = state != null && state.isFile() ? readText(state) : null;
+          if (json != null && !json.isEmpty() && !json.contains("\"clear\"")) {
+            pendingPayload = json;
+            update(json);
+          } else if (web != null) {
+            web.evaluateJavascript("window.dshFloat&&window.dshFloat.onData({tasks:[]})", null);
+          }
         });
   }
 
@@ -217,7 +224,6 @@ public final class FloatWindow {
     if (ctx == null) return;
     SharedPreferences p = prefs(ctx);
     if (!p.getBoolean("floatwin_enabled", true)) return;
-    if (p.getBoolean("floatwin_real", false)) return;  // 真实页面模式下不再自绘
     if (!com.deepseekharness.app.OverlayController.permitted(ctx)) return;
     File state = guestFile(ctx, GUEST_STATE);
     if (state == null || !state.isFile()) return;
