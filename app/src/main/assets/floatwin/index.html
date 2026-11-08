@@ -978,6 +978,13 @@
   .m-step .tx { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-step .tx b { font-weight: 500; }
   .m-step.open .tx { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* 展开后的命令原文：次要色 + 等宽，和上面的说明区分开 */
+  .m-step .m-cmd {
+    display: block; margin-top: 2px;
+    font-size: 11px; line-height: 16px; color: var(--fw-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
   .m-step.fail .ic { color: var(--danger); }
   .m-note { margin: 6px 0; text-align: center; font-size: 11px; line-height: 16px; color: var(--fw-sub); }
   .m-run { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; font-size: 12px; line-height: 18px; color: var(--accent); }
@@ -2138,11 +2145,14 @@
         const key = stepKey(m);
         const open = openSteps.has(key);
         const body = String(m.text || '');
+        const cmd = String(m.cmd || '');
         html += '<div class="m-step' + sub + (open ? ' open' : '') + (m.failed ? ' fail' : '') + '" data-k="' + escapeHtml(key) + '">'
           + '<span class="ic">' + stepIcon(m) + '</span>'
           + '<span class="tx"><b>' + escapeHtml(stepName(m)) + '</b>'
           + (body ? ' · ' + escapeHtml(open ? body : plainText(body)) : '')
-          + (m.failed && m.code != null ? ' · 退出码 ' + escapeHtml(m.code) : '') + '</span></div>';
+          + (m.failed && m.code != null ? ' · 退出码 ' + escapeHtml(m.code) : '')
+          + (open && cmd ? '<span class="m-cmd">' + escapeHtml(cmd) + '</span>' : '')
+          + '</span></div>';
       } else if (m.kind === 'note') {
         html += '<div class="m-note">' + escapeHtml(m.text || m.title || '') + '</div>';
       }

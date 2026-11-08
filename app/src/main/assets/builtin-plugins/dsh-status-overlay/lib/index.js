@@ -83,6 +83,28 @@ function toolLabel(name) {
   return '⚙ 正在使用 ' + n
 }
 
+/**
+ * 模型自己写的「这条命令在干什么」——dsh 的 bash 工具带一个必填的 description
+ * 参数（"5-10 words ... shown in the UI"），dsh 的界面就是把它当人话摘要显示、
+ * 命令原文作为副标题。这里取同一份信息。
+ */
+const SUMMARY_KEYS = ['description', 'summary', 'title', 'intent']
+
+function toolSummary(argsJson) {
+  try {
+    if (!argsJson) return ''
+    const o = typeof argsJson === 'string' ? JSON.parse(argsJson) : argsJson
+    if (!o || typeof o !== 'object') return ''
+    for (const k of SUMMARY_KEYS) {
+      const v = o[k]
+      if (typeof v === 'string' && v.trim()) return v.trim()
+    }
+    return ''
+  } catch {
+    return ''
+  }
+}
+
 /** 工具参数里挑一个「值得显示的那个」——命令原文最有用，其次是路径/模式/URL。
  *  arguments 是 JSON 字符串；模型也可能吐出半截的非法 JSON，所以解析失败就放弃。 */
 const ARG_KEYS = ['command', 'cmd', 'script', 'path', 'file_path', 'filePath',
@@ -456,7 +478,14 @@ async function loadHistory(sessionId) {
       } else if (event.type === 'tool/call') {
         const label = toolLabel(data.name)
         const detail = toolDetail(data.arguments)
-        b.messages.push({ depth: 0, kind: 'tool', title: label, text: detail || '', at: Number(event.at) || 0 })
+        const summary = toolSummary(data.arguments)
+        b.messages.push({
+          depth: 0, kind: 'tool', title: label,
+          text: summary || detail || '',
+          // 命令原文另存：展开时放在说明下面，和 dsh 的终端卡片一致
+          cmd: detail && summary && detail !== summary ? detail : '',
+          at: Number(event.at) || 0,
+        })
       }
     }
     b.messages = b.messages.slice(-40)
@@ -1434,6 +1463,8 @@ export function apply(ctx) {
         // 这也是悬浮条上就地批准危险命令时唯一的判断依据。
         const label = toolLabel(data?.name)
         const detail = toolDetail(data?.arguments)
+        // 说明优先显示，命令原文留给展开看；b.line/b.detail 仍是命令原文（悬浮条批准用）
+        const summary = toolSummary(data?.arguments)
         closeLive(b, depth)
         b.line = detail ? label + ': ' + detail : label
         b.think = ''
@@ -1451,13 +1482,20 @@ export function apply(ctx) {
         pushStep(b, b.line)
         // 同一个工具连着跑（比如一屏四条「正在执行命令」）就并成一条计数，
         // 不然悬浮窗里全是重复行，真正的内容被挤没了。
+        const shown = summary || detail || ''
+        const extra = detail && summary && detail !== summary ? detail : ''
         const last = b.messages[b.messages.length - 1]
         if (last && last.kind === 'tool' && last.title === label) {
           last.count = (last.count || 1) + 1
-          last.text = detail || last.text
+          last.text = shown || last.text
+          if (extra) last.cmd = extra
           last.at = Date.now()
         } else {
-          b.messages.push({ depth, kind: 'tool', title: label, text: detail || '', at: Date.now() })
+          b.messages.push({
+            depth, kind: 'tool', title: label, text: shown,
+            ...extra ? { cmd: extra } : {},
+            at: Date.now(),
+          })
         }
         if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         scheduleFloat(key, b)
