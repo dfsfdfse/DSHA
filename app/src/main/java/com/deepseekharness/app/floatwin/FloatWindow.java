@@ -323,6 +323,10 @@ public final class FloatWindow {
   }
 
   private static void writeWant(Context ctx, String want, String session) {
+    writeWant(ctx, want, session, "");
+  }
+
+  private static void writeWant(Context ctx, String want, String session, String value) {
     try {
       File inbox = guestFile(ctx, GUEST_INBOX);
       if (inbox == null || want == null || want.isEmpty()) return;
@@ -332,7 +336,8 @@ public final class FloatWindow {
           new JSONObject()
               .put("seq", System.currentTimeMillis())
               .put("want", want)
-              .put("session", session == null ? "" : session);
+              .put("session", session == null ? "" : session)
+              .put("value", value == null ? "" : value);
       File tmp = new File(inbox.getPath() + ".tmp");
       try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
         out.write(message.toString().getBytes(StandardCharsets.UTF_8));
@@ -778,6 +783,13 @@ public final class FloatWindow {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) pullState(ctx);
           pushPayload();
+          return;
+        }
+        case "permission": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) {
+            writeWant(ctx, "permission", p.optString("session", ""), p.optString("value", ""));
+          }
           return;
         }
         case "thread": {

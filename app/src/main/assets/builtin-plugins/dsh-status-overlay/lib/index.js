@@ -238,6 +238,7 @@ async function sendFloat(key, b) {
       done: !!s.done,
       usage,
       model: modelOf(k),
+      permission: permissionOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -318,6 +319,7 @@ function liveAgent(agents, wanted) {
   }
 }
 
+let permissionApi
 let defaultModelApi
 let queryApi
 /** 全部会话（含没有消息的）：页面靠它列出所有对话。 */
@@ -420,6 +422,22 @@ async function loadHistory(sessionId) {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * 会话当前的权限预设（dsh 的 permissions 投影）。
+ * 只读 current/names，真正的写入走 /permission 命令，和 Web 客户端是同一条路。
+ */
+function permissionOf(session) {
+  if (!permissionApi || !session) return null
+  try {
+    const current = permissionApi.current(session)
+    if (!current) return null
+    const names = Array.from(permissionApi.names || []).filter(n => typeof n === 'string')
+    return { current: String(current), options: names.slice(0, 8) }
+  } catch {
+    return null
   }
 }
 
@@ -569,6 +587,7 @@ function publishFloat(activeKey) {
       done: !!s.done,
       usage,
       model: modelOf(k),
+      permission: permissionOf(s.session),
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -686,6 +705,10 @@ export function apply(ctx) {
     queryApi = scoped.sessionQuery
     void refreshThreads()
     return () => { queryApi = undefined }
+  })
+  ctx.inject(['permissionPresets'], scoped => {
+    permissionApi = scoped.permissionPresets
+    return () => { permissionApi = undefined }
   })
   ctx.inject(['agentDefaultModel'], scoped => {
     defaultModelApi = scoped.agentDefaultModel
@@ -968,6 +991,35 @@ function startInbox(ctx) {
       }
       if (want === 'threads') {
         await refreshThreads()
+        return
+      }
+      if (want === 'permission') {
+        const value = String(msg.value || '').trim()
+        if (!value) return
+        let target
+        try {
+          target = await ensureAgent(msg.session)
+        } catch (error) {
+          setNotice('切换权限失败：' + String(error?.message || error).slice(0, 60))
+          return
+        }
+        const commands = typeof ctx.get === 'function' ? ctx.get('commands') : undefined
+        if (!target || !commands || typeof commands.execute !== 'function') {
+          setNotice('切换权限失败：当前环境不支持')
+          return
+        }
+        try {
+          const done = await commands.execute(target, '/permission ' + value, [], AbortSignal.timeout(8000))
+          const kind = done?.result?.kind
+          if (kind === 'error') {
+            setNotice('切换权限失败：' + String(done?.result?.text || '').slice(0, 70))
+          } else {
+            notice = ''
+          }
+        } catch (error) {
+          setNotice('切换权限失败：' + String(error?.message || error).slice(0, 70))
+        }
+        publishFloat('')
         return
       }
       if (want === 'thread') {
