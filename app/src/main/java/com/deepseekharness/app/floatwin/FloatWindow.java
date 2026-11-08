@@ -76,7 +76,15 @@ public final class FloatWindow {
   private static String lastWebUrl = "";
   private static android.webkit.ValueCallback<android.net.Uri[]> pendingFileChooser;
   private static boolean pendingImage;
-  private static android.speech.SpeechRecognizer speech;
+  /** 录音状态：true=正在录；用 dsh 的 speechToText 转写，不走系统识别。 */
+  private static boolean recording;
+  private static android.media.AudioRecord recorder;
+  private static java.io.ByteArrayOutputStream pcm;
+  private static long voiceSeq;
+  private static long lastVoiceResult;
+
+  private static final String GUEST_VOICE = "float-voice.json";
+  private static final String GUEST_VOICE_RESULT = "float-voice-result.json";
 
   private static boolean moving;
   private static boolean resizing;
@@ -133,6 +141,10 @@ public final class FloatWindow {
     }
     try {
       pollGuest();
+    } catch (Throwable ignored) {
+    }
+    try {
+      if (watchCtx != null) pollVoiceResult(watchCtx);
     } catch (Throwable ignored) {
     }
     if (watching) main.postDelayed(FloatWindow::pollOnce, 900);
@@ -731,89 +743,156 @@ public final class FloatWindow {
     }
   }
 
-  /** 悬浮窗里的语音输入：系统识别结果直接回填到页面输入框。 */
+  /** 语音：点一下开始录音，再点一下停止并把 WAV 交给容器里的 speechToText 转写。 */
   private static void startVoice() {
     Context ctx = web == null ? null : web.getContext();
     if (ctx == null) return;
+    if (recording) {
+      stopAndTranscribe();
+      return;
+    }
+    if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
+      return;
+    }
     try {
-      if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-          != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没有麦克风权限')");
-        return;
-      }
-      if (!android.speech.SpeechRecognizer.isRecognitionAvailable(ctx)) {
-        evaluate("window.dshFloat&&window.dshFloat.onVoiceError('系统语音识别不可用')");
-        return;
-      }
-      stopVoice();
-      speech = android.speech.SpeechRecognizer.createSpeechRecognizer(ctx);
-      speech.setRecognitionListener(
-          new android.speech.RecognitionListener() {
-            @Override
-            public void onReadyForSpeech(android.os.Bundle params) {}
-
-            @Override
-            public void onBeginningOfSpeech() {}
-
-            @Override
-            public void onRmsChanged(float rms) {}
-
-            @Override
-            public void onBufferReceived(byte[] buffer) {}
-
-            @Override
-            public void onEndOfSpeech() {}
-
-            @Override
-            public void onError(int error) {
-              evaluate("window.dshFloat&&window.dshFloat.onVoiceError('没听清，再说一次')");
-              stopVoice();
-            }
-
-            @Override
-            public void onResults(android.os.Bundle results) {
-              String text = "";
-              try {
-                java.util.ArrayList<String> list =
-                    results.getStringArrayList(
-                        android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
-                if (list != null && !list.isEmpty()) text = list.get(0);
-              } catch (Throwable ignored) {
-              }
-              evaluate("window.dshFloat&&window.dshFloat.onVoice(" + JSONObject.quote(text) + ")");
-              stopVoice();
-            }
-
-            @Override
-            public void onPartialResults(android.os.Bundle partial) {}
-
-            @Override
-            public void onEvent(int type, android.os.Bundle params) {}
-          });
-      android.content.Intent intent =
-          new android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-      intent.putExtra(
-          android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-          android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-      intent.putExtra(
-          android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toString());
-      intent.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-      speech.startListening(intent);
+      int rate = 16000;
+      int min = android.media.AudioRecord.getMinBufferSize(
+          rate,
+          android.media.AudioFormat.CHANNEL_IN_MONO,
+          android.media.AudioFormat.ENCODING_PCM_16BIT);
+      recorder =
+          new android.media.AudioRecord(
+              android.media.MediaRecorder.AudioSource.MIC,
+              rate,
+              android.media.AudioFormat.CHANNEL_IN_MONO,
+              android.media.AudioFormat.ENCODING_PCM_16BIT,
+              Math.max(min, rate));
+      recorder.startRecording();
+      pcm = new java.io.ByteArrayOutputStream();
+      recording = true;
       evaluate("window.dshFloat&&window.dshFloat.onVoiceState('listening')");
+      Thread thread =
+          new Thread(
+              () -> {
+                byte[] buffer = new byte[3200];
+                while (recording) {
+                  int read = recorder == null ? -1 : recorder.read(buffer, 0, buffer.length);
+                  if (read <= 0) break;
+                  pcm.write(buffer, 0, read);
+                  if (pcm.size() > 16000 * 2 * 40) break;  // 最长 40 秒
+                }
+              },
+              "float-voice");
+      thread.setDaemon(true);
+      thread.start();
     } catch (Throwable error) {
-      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('语音启动失败')");
+      recording = false;
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('录音启动失败')");
     }
   }
 
-  private static void stopVoice() {
+  /** 停止录音，把 PCM 包成 WAV 交给插件转写。 */
+  private static void stopAndTranscribe() {
+    Context ctx = web == null ? null : web.getContext();
+    if (ctx == null) return;
+    recording = false;
     try {
-      if (speech != null) {
-        speech.cancel();
-        speech.destroy();
+      if (recorder != null) {
+        recorder.stop();
+        recorder.release();
       }
     } catch (Throwable ignored) {
     }
-    speech = null;
+    recorder = null;
+    final byte[] pcmBytes = pcm == null ? new byte[0] : pcm.toByteArray();
+    pcm = null;
+    if (pcmBytes.length < 3200) {
+      evaluate("window.dshFloat&&window.dshFloat.onVoiceError('说话时间太短')");
+      return;
+    }
+    evaluate("window.dshFloat&&window.dshFloat.onVoiceState('transcribing')");
+    Thread writer =
+        new Thread(
+            () -> {
+              try {
+                java.io.ByteArrayOutputStream wav = new java.io.ByteArrayOutputStream();
+                int dataLen = pcmBytes.length;
+                int rate = 16000;
+                wav.write("RIFF".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                writeLe32(wav, 36 + dataLen);
+                wav.write("WAVE".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                wav.write("fmt ".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                writeLe32(wav, 16);
+                writeLe16(wav, 1);
+                writeLe16(wav, 1);
+                writeLe32(wav, rate);
+                writeLe32(wav, rate * 2);
+                writeLe16(wav, 2);
+                writeLe16(wav, 16);
+                wav.write("data".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                writeLe32(wav, dataLen);
+                wav.write(pcmBytes, 0, dataLen);
+                String audio =
+                    android.util.Base64.encodeToString(wav.toByteArray(), android.util.Base64.NO_WRAP);
+                voiceSeq = System.currentTimeMillis();
+                File file = guestFile(ctx, GUEST_VOICE);
+                if (file == null || file.getParentFile() == null) return;
+                file.getParentFile().mkdirs();
+                File tmp = new File(file.getPath() + ".tmp");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                  out.write(
+                      new JSONObject().put("seq", voiceSeq).put("audio", audio).toString()
+                          .getBytes(StandardCharsets.UTF_8));
+                  out.flush();
+                  out.getFD().sync();
+                }
+                if (!tmp.renameTo(file)) tmp.renameTo(file);
+              } catch (Throwable error) {
+                main.post(
+                    () ->
+                        evaluate(
+                            "window.dshFloat&&window.dshFloat.onVoiceError('语音发送失败')"));
+              }
+            },
+            "float-voice-upload");
+    writer.setDaemon(true);
+    writer.start();
+  }
+
+  private static void writeLe32(java.io.ByteArrayOutputStream out, int value) {
+    out.write(value & 0xFF);
+    out.write((value >> 8) & 0xFF);
+    out.write((value >> 16) & 0xFF);
+    out.write((value >> 24) & 0xFF);
+  }
+
+  private static void writeLe16(java.io.ByteArrayOutputStream out, int value) {
+    out.write(value & 0xFF);
+    out.write((value >> 8) & 0xFF);
+  }
+
+  /** 插件转写完成的文本；没有新结果就什么都不做。 */
+  private static void pollVoiceResult(Context ctx) {
+    File result = guestFile(ctx, GUEST_VOICE_RESULT);
+    if (result == null || !result.isFile()) return;
+    long stamp = result.lastModified();
+    if (stamp == lastVoiceResult) return;
+    lastVoiceResult = stamp;
+    String json = readText(result);
+    if (json == null || json.isEmpty()) return;
+    try {
+      JSONObject data = new JSONObject(json);
+      String text = data.optString("text", "");
+      String error = data.optString("error", "");
+      if (!error.isEmpty()) {
+        evaluate("window.dshFloat&&window.dshFloat.onVoiceError(" + JSONObject.quote(error) + ")");
+      } else if (!text.isEmpty()) {
+        evaluate("window.dshFloat&&window.dshFloat.onVoice(" + JSONObject.quote(text) + ")");
+      }
+    } catch (Throwable ignored) {
+    }
   }
 
   /** 选一张图，写进容器后把路径交给页面当附件引用。 */
@@ -882,7 +961,15 @@ public final class FloatWindow {
   }
 
   private static void dismiss() {
-    stopVoice();
+    recording = false;
+    try {
+      if (recorder != null) {
+        recorder.stop();
+        recorder.release();
+      }
+    } catch (Throwable ignored) {
+    }
+    recorder = null;
     if (web != null) userClosed = true;
     realPage = false;
     pendingFileChooser = null;

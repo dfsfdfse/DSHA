@@ -34,6 +34,9 @@ const BRIDGE = 'http://127.0.0.1:3090/app/overlay'
 const FLOAT_STATE = '/root/.dsh/float-state.json'
 /** 反向通道：宿主播下去用户要问 agent 的话，插件投递到会话。 */
 const FLOAT_INBOX = '/root/.dsh/float-inbox.json'
+/** 语音：宿主录音写 WAV(base64)，插件交给 dsh 的 speechToText 转写后回写结果。 */
+const VOICE_IN = '/root/.dsh/float-voice.json'
+const VOICE_OUT = '/root/.dsh/float-voice-result.json'
 /** 富内容悬浮窗：只发「重要信息 + 步骤」，不发原始 token。 */
 const FLOAT = 'http://127.0.0.1:3090/app/float'
 const TOKEN_PATH = '/root/.dsh/.bridge_token'
@@ -360,6 +363,7 @@ export function apply(ctx) {
   }, 300)
   if (typeof started?.unref === 'function') started.unref()
   startInbox(ctx)
+  startVoice(ctx)
   ctx.inject(['sessionProjections'], scoped => {
     projections = scoped.sessionProjections
     return () => { projections = undefined }
@@ -499,6 +503,53 @@ export function apply(ctx) {
   })
 }
 
+
+let stt
+
+/** 语音转写：用 dsh 自己的 speechToText 服务（SenseVoice 等），不是系统识别。 */
+function startVoice(ctx) {
+  let lastSeq = 0
+  try {
+    const seed = JSON.parse(readFileSync(VOICE_IN, 'utf8'))
+    if (seed && Number.isFinite(Number(seed.seq))) lastSeq = Number(seed.seq)
+  } catch { /* 首次没有录音 */ }
+  ctx.inject(['speechToText'], scoped => {
+    stt = scoped.speechToText
+    return () => { stt = undefined }
+  })
+  const write = result => {
+    try {
+      const tmp = VOICE_OUT + '.' + process.pid + '.tmp'
+      writeFileSync(tmp, JSON.stringify(result), { mode: 0o600 })
+      renameSync(tmp, VOICE_OUT)
+    } catch { /* 结果写不进去就保持安静 */ }
+  }
+  const timer = setInterval(async () => {
+    try {
+      if (!stt) return
+      const message = JSON.parse(readFileSync(VOICE_IN, 'utf8'))
+      const seq = Number(message?.seq)
+      if (!Number.isFinite(seq) || seq <= lastSeq || typeof message.audio !== 'string') return
+      lastSeq = seq
+      const audio = Buffer.from(message.audio, 'base64')
+      try {
+        const spec = stt.resolve({ audio, language: 'zh' })
+        const controller = new AbortController()
+        const result = await stt.transcribe(spec, controller.signal)
+        const text = typeof result === 'string'
+          ? result
+          : (result?.text ?? result?.transcript ?? '')
+        write({ seq, text: String(text || '') })
+      } catch (error) {
+        write({ seq, error: '语音转写失败：' + String(error?.message || error).slice(0, 80) })
+      }
+    } catch { /* 轮询本身出错不影响 agent */ }
+  }, 400)
+  if (typeof timer?.unref === 'function') timer.unref()
+  ctx.on('dispose', () => {
+    try { clearInterval(timer) } catch { }
+  })
+}
 
 /** 悬浮窗里的输入框 → 会话：宿主把文本写进 FLOAT_INBOX，这里轮询并投递。 */
 function startInbox(ctx) {
