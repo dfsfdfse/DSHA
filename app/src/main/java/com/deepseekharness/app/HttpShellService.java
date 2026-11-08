@@ -1798,11 +1798,6 @@ public final class HttpShellService {
         alphaValue = alphaText.isEmpty() ? 0 : Integer.parseInt(alphaText.trim());
       } catch (NumberFormatException ignored) {
       }
-      if ("capture".equals(action)) {
-        // 把屏幕上正开着的悬浮窗画成 PNG（应用自绘，不走无障碍/截屏授权）。
-        String out = getParam(q, "out", "/sdcard/Download/floatwin-capture.png");
-        return com.deepseekharness.app.floatwin.FloatWindow.capture(out);
-      }
       if ("snapshot".equals(action)) {
         // 离屏渲染：应用自己画 PNG，不触发任何系统确认，供 UI 迭代用。
         String html = getParam(q, "html", "");
@@ -1810,23 +1805,12 @@ public final class HttpShellService {
         String out = getParam(q, "out", "/sdcard/Download/floatwin-snapshot.png");
         int sw = intParam(q, "w", 380);
         int sh = intParam(q, "h", 520);
-        // url=dsh 时直接用 dsh 当前的鉴权地址（地址里有 token，不让调用方传）
-        String snapUrl = getParam(q, "url", "");
-        if ("dsh".equals(snapUrl)) {
-          snapUrl = com.deepseekharness.app.floatwin.FloatWindow.dshUrl(ctx);
-          if (snapUrl.isEmpty()) return "DSH_NOT_RUNNING";
-        } else if (!snapUrl.isEmpty()) {
-          return "URL_NOT_ALLOWED";
-        }
         java.io.File outFile = new java.io.File(out);
         final String replyOut = out;
         com.deepseekharness.app.floatwin.FloatSnapshot.render(
             ctx,
             html,
             htmlPath,
-            snapUrl,
-            intParam(q, "zoom", 100),
-            intParam(q, "wait", 600),
             sw,
             sh,
             outFile,
