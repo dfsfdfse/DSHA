@@ -34,6 +34,9 @@ final class FloatWake {
   private static volatile int segs;
   private static volatile int sent;
   private static volatile int wakes;
+  /** 最近一段送检音频的长度与峰值（诊断用）。 */
+  private static volatile long segMs;
+  private static volatile double segLevelLast;
   private static final int RATE = 16000;
   private static final Handler main = new Handler(Looper.getMainLooper());
 
@@ -146,14 +149,17 @@ final class FloatWake {
 
   private static void loop(Context app, long gen) {
     final int frameBytes = RATE * 2 * 30 / 1000; // 30ms
-    final int preRollFrames = 10; // 300ms
-    final int endSilenceFrames = 22; // ~660ms
-    final int minFrames = 12; // 360ms
-    final int maxFrames = 170; // ~5s
+    final int preRollFrames = 12; // 360ms
+    final int endSilenceFrames = 26; // ~780ms：留够尾音，别把话说一半就切
+    final int minFrames = 20; // 整段至少 600ms
+    final int minLoudFrames = 8; // 其中至少 240ms 是实音，否则多半是碰麦/噪音
+    final int maxFrames = 270; // ~8s：一口气说完「唤醒词+指令」也能整段收进去
     byte[] frame = new byte[frameBytes];
     java.util.ArrayDeque<byte[]> preRoll = new java.util.ArrayDeque<>();
     java.io.ByteArrayOutputStream seg = null;
     int segFrames = 0;
+    int segLoud = 0;
+    double segPeak = 0;
     int silent = 0;
     int loudRun = 0;
     double noise = -1;
@@ -226,6 +232,8 @@ final class FloatWake {
           seg = new java.io.ByteArrayOutputStream();
           for (byte[] b : preRoll) seg.write(b, 0, b.length);
           segFrames = preRoll.size();
+          segLoud = loudRun;
+          segPeak = rms;
           preRoll.clear();
           silent = 0;
         }
@@ -233,19 +241,29 @@ final class FloatWake {
       }
       seg.write(copy, 0, copy.length);
       segFrames++;
+      if (loud) segLoud++;
+      if (rms > segPeak) segPeak = rms;
       silent = loud ? 0 : silent + 1;
       if (silent >= endSilenceFrames || segFrames >= maxFrames) {
         byte[] pcm = seg.toByteArray();
         int speechFrames = segFrames - silent;
+        int loudFrames = segLoud;
+        double segLevel = segPeak;
         seg = null;
         loudRun = 0;
+        segFrames = 0;
+        segLoud = 0;
+        segPeak = 0;
         segs++;
-        if (speechFrames >= minFrames) {
+        if (speechFrames >= minFrames && loudFrames >= minLoudFrames) {
           sent++;
           // 转写期间不再切新段，避免把 SenseVoice 排满
           busyUntil = System.currentTimeMillis() + 60_000;
           String text = transcribe(app, pcm, gen);
           busyUntil = 0;
+          segMs = pcm.length * 1000L / (RATE * 2);
+          segLevelLast = segLevel;
+          if (text != null && text.isEmpty()) lastErr = "识别为空（" + segMs + "ms，峰值 " + Math.round(segLevel) + "）";
           if (text != null && running && generation == gen && !paused) handle(app, text);
         }
       }
@@ -308,6 +326,8 @@ final class FloatWake {
               .put("sent", sent)
               .put("wakes", wakes)
               .put("words", words(app))
+              .put("lastSegMs", segMs)
+              .put("lastSegPeak", Math.round(segLevelLast))
               .put("lastText", lastText)
               .put("lastErr", lastErr);
       File tmp = new File(f.getPath() + ".tmp");

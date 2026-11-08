@@ -2029,6 +2029,8 @@ public final class FloatWindow {
     } catch (Throwable ignored) {
     }
     pendingWake = command == null ? "" : command;
+    // 先给一个不依赖悬浮窗的回执：窗口没弹出来时也能知道「听到了」
+    toast(app, pendingWake.isEmpty() ? "已唤醒，请说话" : "已唤醒：" + pendingWake);
     if (web != null && !realPage) {
       main.postDelayed(FloatWindow::runPendingWake, 260);
       return;
