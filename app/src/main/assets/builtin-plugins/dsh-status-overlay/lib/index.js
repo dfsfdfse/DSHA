@@ -287,6 +287,8 @@ async function sendFloat(key, b) {
 }
 
 let projections
+/** dsh Web 的会话控制器：恢复/新建会话都走它，保证 agent 装配与 Web 一致。 */
+let sessionControllerApi
 let agentsApi
 let llmApi
 let modelCatalog = []
@@ -548,18 +550,34 @@ async function ensureAgent(wanted) {
   const fresh = id === 'new'
   const live = fresh ? undefined : liveAgent(agentsApi, id)
   if (live) return live
+  // 优先走 dsh Web 自己的会话控制器：恢复/新建都带完整的 agent 装配（预设、工具、系统提示），
+  // 还会处理「会话已被 Web 打开」「属于子代理」等情况；自己拼 agents.resume 会在这些情况下失败。
+  const sc = sessionControllerApi
+  if (sc?.agents?.resolveAgent) {
+    if (fresh) {
+      const created = await sc.create(lastCwdPath ? { cwd: lastCwdPath } : {})
+      const found = await sc.agents.resolveAgent(created.sessionId)
+      if (found && 'agent' in found) return found.agent
+      throw new Error(found?.error?.message || '新会话建好了但拿不到它的 agent')
+    }
+    if (id) {
+      const found = await sc.agents.resolveAgent(id)
+      if (found && 'agent' in found) return found.agent
+      // 指定了会话却恢复不了：如实报错，绝不悄悄换成一个新会话
+      throw new Error(found?.error?.message || `会话 ${id.slice(-8)} 恢复失败`)
+    }
+  }
   const modelSelection = (() => {
     try { return defaultModelApi?.currentSelection?.() } catch { return undefined }
   })()
   const agentOptions = {}
   if (modelSelection?.provider) agentOptions.provider = String(modelSelection.provider)
   if (modelSelection?.model) agentOptions.model = String(modelSelection.model)
-  // 先试着恢复指定的老会话，再退到新建
+  // 没有会话控制器时的退路：恢复指定的老会话；指定了 id 却恢复不了就报错，不偷偷新建
   if (id && !fresh) {
-    try {
-      const resumed = await agentsApi.resume({ resumeSessionId: id, agentOptions })
-      if (resumed?.agent) return resumed.agent
-    } catch { /* 恢复不了就新建 */ }
+    const resumed = await agentsApi.resume({ resumeSessionId: id, agentOptions })
+    if (resumed?.agent) return resumed.agent
+    throw new Error(`会话 ${id.slice(-8)} 恢复失败`)
   }
   const cwd = lastCwdPath || '/root'
   try {
@@ -654,8 +672,13 @@ function resolveSession(wanted, rows) {
   const list = [...rows].sort((a, b) => (b.updated || 0) - (a.updated || 0))
   if (!list.length) return ''
   if (list.some(r => r.id === w)) return w
-  const byPrefix = list.find(r => r.id.startsWith(w))
-  if (byPrefix) return byPrefix.id
+  // list 显示的是 id 尾号（最后 8 位），所以前缀、尾号、带不带 session- 前缀都要认
+  const bare = w.replace(/^session-/, '').toLowerCase()
+  const byId = bare.length >= 4 && list.find(r => {
+    const rid = r.id.replace(/^session-/, '').toLowerCase()
+    return rid.startsWith(bare) || rid.endsWith(bare)
+  })
+  if (byId) return byId.id
   if (/最近|最新|latest|上一个|刚才|刚刚/.test(w)) return list[0].id
   if (/倒数|第/.test(w)) {
     const n = numberOf(w)
@@ -777,10 +800,11 @@ async function sessionAdmin(args) {
     try {
       agent = await ensureAgent(id)
     } catch (error) {
-      return { ok: false, count: 0, text: `恢复会话「${title}」失败：` + String(error?.message || error).slice(0, 80) }
+      return { ok: false, count: 0, text: `会话「${title}」恢复失败，没有发送。原因：` + String(error?.message || error).slice(0, 160) }
     }
-    if (!agent || String(agent.session?.id || '') !== id) {
-      return { ok: false, count: 0, text: `会话「${title}」恢复不了（可能已被删除），没有发送` }
+    const got = String(agent?.session?.id || agent?.id || '')
+    if (!agent || got !== id) {
+      return { ok: false, count: 0, text: `会话「${title}」恢复失败，没有发送。原因：拿到的是另一个会话（${got.slice(-8) || '无'}）` }
     }
     try {
       await deliverText(agent, message)
@@ -1288,6 +1312,10 @@ export function apply(ctx) {
     agentsApi = scoped.agents
     return () => { agentsApi = undefined }
   })
+  safely('session-controller', () => ctx.inject(['sessionController'], scoped => {
+    sessionControllerApi = scoped.sessionController
+    return () => { sessionControllerApi = undefined }
+  }))
   ctx.inject(['llm'], scoped => {
     llmApi = scoped.llm
     void refreshModels()
@@ -1790,7 +1818,7 @@ function startInbox(ctx) {
       try {
         agent = await ensureAgent(msg.session)
       } catch (error) {
-        setNotice('新建会话失败：' + String(error?.message || error).slice(0, 70))
+        setNotice('会话不可用：' + String(error?.message || error).slice(0, 70))
         return
       }
       if (!agent) {
