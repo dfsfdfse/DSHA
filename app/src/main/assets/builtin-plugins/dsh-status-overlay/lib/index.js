@@ -1152,6 +1152,15 @@ function schedule(key, kind, getter) {
   if (typeof b.timer?.unref === 'function') b.timer.unref()
 }
 
+/** 子功能各自兜底：任何一块出错只记诊断，绝不让 apply 抛出、把整个插件带崩。 */
+function safely(what, run) {
+  try {
+    run()
+  } catch (error) {
+    pluginDiag(what, 'fail ' + String(error?.stack || error?.message || error).slice(0, 300))
+  }
+}
+
 /** @param {import('@deepseek-ai/cordis').Context} ctx */
 export function apply(ctx) {
   // 顺带把插件真实加载状态报给 App（见 reportPluginStates 的注释）
@@ -1161,8 +1170,8 @@ export function apply(ctx) {
     try { publishFloat('') } catch { }
   }, 300)
   if (typeof started?.unref === 'function') started.unref()
-  startInbox(ctx)
-  startVoice(ctx)
+  safely('inbox', () => startInbox(ctx))
+  safely('voice', () => startVoice(ctx))
   ctx.inject(['sessionProjections'], scoped => {
     projections = scoped.sessionProjections
     return () => { projections = undefined }
@@ -1176,11 +1185,10 @@ export function apply(ctx) {
     void refreshModels()
     return () => { llmApi = undefined }
   })
-  // 工具/技能优先直接挂在插件 ctx 上：inject 依赖服务名匹配，挂不上的话就会「静默没有工具」
-  registerSessionTool(ctx)
-  registerSessionSkill(ctx)
-  if (!ctx.tools) ctx.inject(['tools'], scoped => (registerSessionTool(scoped), () => {}))
-  if (!ctx.skills) ctx.inject(['skills'], scoped => (registerSessionSkill(scoped), () => {}))
+  // 会话管理工具/技能：走 inject（直接访问未声明的 ctx.tools 在 cordis 里可能直接抛错，
+  // 那会把整个插件带崩——悬浮窗标签、语音转写全没了）
+  safely('session-tool', () => ctx.inject(['tools'], scoped => registerSessionTool(scoped)))
+  safely('session-skill', () => ctx.inject(['skills'], scoped => registerSessionSkill(scoped)))
   ctx.inject(['sessionQuery'], scoped => {
     queryApi = scoped.sessionQuery
     void refreshThreads()
@@ -1450,10 +1458,9 @@ function startVoice(ctx) {
     return () => { stt = undefined }
   })
   const timers = [
-    watchVoice(ctx, VOICE_IN, VOICE_OUT, 400),
-    watchVoice(ctx, WAKE_IN, WAKE_OUT, 250),
+    ...watchVoice(ctx, VOICE_IN, VOICE_OUT, 400),
+    ...watchVoice(ctx, WAKE_IN, WAKE_OUT, 250),
   ]
-  timers.push(watchdog)
   ctx.on('dispose', () => {
     for (const timer of timers) {
       try { clearInterval(timer) } catch { }
@@ -1527,7 +1534,7 @@ function watchVoice(ctx, input, output, every) {
     } catch { /* 轮询本身出错不影响 agent */ }
   }, every)
   if (typeof timer?.unref === 'function') timer.unref()
-  return timer
+  return [timer, watchdog]
 }
 
 /** 悬浮窗里的输入框 → 会话：宿主把文本写进 FLOAT_INBOX，这里轮询并投递。 */
