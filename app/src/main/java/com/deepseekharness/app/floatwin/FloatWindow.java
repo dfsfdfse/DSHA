@@ -8,27 +8,26 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.util.Collections;
 import org.json.JSONObject;
 
 /**
- * 富内容悬浮窗：原生只负责窗口、拖动与生命周期，内容由本地 HTML 渲染。
+ * 富内容悬浮窗：原生窗口 + 本地 HTML 内容。
  *
- * <p>数据与控制走一条 JSON 消息通道（WebView &lt;-&gt; 原生），方法名与参数都是普通 JSON，
- * 传输层不包含业务判断；要加交互只需在 {@link #onMessage} 里加一个分支，要换 UI 只改
- * {@code assets/floatwin/index.html}。
- *
- * <p>性能约定：WebView 只在首次显示时创建并复用，不重复加载；更新只做一次
- * {@code evaluateJavascript}，由页面里的 rAF 合帧，避免每个 token 触发一次布局。
+ * <p>拖动由窗口内一条原生触摸带完成（不是页面事件）：触摸带随窗口一起移动，
+ * 手势不会因为窗口位移而中断，位置在松手时持久化。轻点触摸带切换展开。
  */
 public final class FloatWindow {
-  /** 业务回调：页面上的交互回传到这里。 */
   public interface Callback {
     void onConfirm(boolean allow);
 
@@ -38,33 +37,43 @@ public final class FloatWindow {
   private static final String BASE_URL = "https://float.dsha.local/";
   private static final String BRIDGE = "DshaFloat";
   private static final String K_Y = "floatwin_y";
+  private static final String K_X = "floatwin_x";
 
   private static final Handler main = new Handler(Looper.getMainLooper());
+  private static FrameLayout container;
   private static WebView web;
   private static WindowManager wm;
   private static WindowManager.LayoutParams params;
-  private static View root;
-  private static Callback handler;
-  private static int dragBaseY;
-  private static float dragStartScreenY;
+  private static Callback callback;
+  private static String pendingPayload = "";
+  private static boolean expanded;
+  private static Runnable hideTask;
   private static boolean dragging;
+  private static boolean dragMoved;
+  private static float downRawX;
+  private static float downRawY;
+  private static int baseX;
+  private static int baseY;
 
   private FloatWindow() {}
 
-  public static void show(Context context, String payload, Callback callback) {
+  public static void show(Context context, String payload, Callback cb) {
     if (context == null) return;
     final Context app = context.getApplicationContext();
-    handler = callback;
-    main.post(() -> showOnMain(app, payload));
+    callback = cb;
+    pendingPayload = payload == null ? "" : payload;
+    main.post(() -> showOnMain(app));
   }
 
   public static void update(String payload) {
     if (payload == null) return;
+    pendingPayload = payload;
     main.post(
         () -> {
           if (web == null) return;
           web.evaluateJavascript(
               "window.dshFloat&&window.dshFloat.onData(" + JSONObject.quote(payload) + ")", null);
+          resetHideTimer();
         });
   }
 
@@ -72,21 +81,16 @@ public final class FloatWindow {
     main.post(FloatWindow::dismiss);
   }
 
-  private static void showOnMain(Context app, String payload) {
-    if (web == null) {
-      if (!create(app)) return;
-    }
-    try {
-      if (root != null && root.getWindowToken() == null) wm.addView(root, params);
-    } catch (Throwable ignored) {
-      return;
-    }
-    update(payload);
+  private static void showOnMain(Context app) {
+    if (web == null && !create(app)) return;
+    pushPayload();
+    resetHideTimer();
   }
 
   private static boolean create(Context app) {
     wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
     if (wm == null) return false;
+
     WebView view = new WebView(app);
     view.setBackgroundColor(Color.TRANSPARENT);
     view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -111,6 +115,63 @@ public final class FloatWindow {
           });
     }
 
+    FrameLayout frame = new FrameLayout(app);
+    frame.addView(
+        view,
+        new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+    // 顶部拖动带：覆盖标题区，随窗口一起移动，手势稳定。
+    View strip = new View(app);
+    strip.setBackgroundColor(Color.TRANSPARENT);
+    FrameLayout.LayoutParams stripParams =
+        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(app, 78));
+    stripParams.gravity = Gravity.TOP;
+    frame.addView(strip, stripParams);
+    strip.setOnTouchListener(
+        (v, event) -> {
+          switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+              dragging = true;
+              dragMoved = false;
+              downRawX = event.getRawX();
+              downRawY = event.getRawY();
+              baseX = params.x;
+              baseY = params.y;
+              cancelHide();
+              return true;
+            case MotionEvent.ACTION_MOVE: {
+              int dx = Math.round(event.getRawX() - downRawX);
+              int dy = Math.round(event.getRawY() - downRawY);
+              if (!dragMoved && Math.abs(dx) + Math.abs(dy) > 6) dragMoved = true;
+              if (dragMoved) {
+                int screen = app.getResources().getDisplayMetrics().widthPixels;
+                int maxX = Math.max(0, screen - params.width);
+                params.x = Math.max(0, Math.min(maxX, baseX + dx));
+                params.y = Math.max(0, baseY + dy);
+                try {
+                  wm.updateViewLayout(frame, params);
+                } catch (RuntimeException ignored) {
+                }
+              }
+              return true;
+            }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL: {
+              dragging = false;
+              if (dragMoved) {
+                prefs(app).edit().putInt(K_X, params.x).putInt(K_Y, params.y).apply();
+              } else {
+                view.evaluateJavascript("window.dshFloat&&window.dshFloat.toggle()", null);
+              }
+              resetHideTimer();
+              return true;
+            }
+            default:
+              return true;
+          }
+        });
+
     WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
     lp.type =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -121,31 +182,27 @@ public final class FloatWindow {
             | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
     lp.format = PixelFormat.TRANSLUCENT;
-    lp.width =
-        Math.min(
-            (int) (app.getResources().getDisplayMetrics().widthPixels * 0.92f),
-            720 * app.getResources().getDisplayMetrics().densityDpi / 160);
+    int screen = app.getResources().getDisplayMetrics().widthPixels;
+    lp.width = Math.min((int) (screen * 0.94f), 760);
     lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-    lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-    SharedPreferences prefs =
-        app.getSharedPreferences("deepseekharness", Context.MODE_PRIVATE);
-    lp.y = prefs.getInt(K_Y, (int) (72 * app.getResources().getDisplayMetrics().density));
+    lp.gravity = Gravity.TOP | Gravity.START;
+    SharedPreferences p = prefs(app);
+    lp.x = p.getInt(K_X, (screen - lp.width) / 2);
+    lp.y = p.getInt(K_Y, dp(app, 64));
 
     try {
-      wm.addView(view, lp);
+      wm.addView(frame, lp);
     } catch (Throwable error) {
       return false;
     }
     web = view;
-    root = view;
+    container = frame;
     params = lp;
-    String html = readAsset(app, "floatwin/index.html");
-    view.loadDataWithBaseURL(BASE_URL, html, "text/html", "utf-8", null);
+    view.loadDataWithBaseURL(BASE_URL, readAsset(app, "floatwin/index.html"), "text/html", "utf-8", null);
     return true;
   }
 
-  /** JSON 消息分发：页面只管发方法名，原生只管执行。 */
-  private static void onMessage(String data, androidx.webkit.JavaScriptReplyProxy reply) {
+  private static void onMessage(String data, JavaScriptReplyProxy reply) {
     try {
       JSONObject message = new JSONObject(data == null ? "{}" : data);
       String method = message.optString("method", "");
@@ -153,43 +210,55 @@ public final class FloatWindow {
       if (p == null) p = new JSONObject();
       switch (method) {
         case "ready":
+          pushPayload();
           reply.postMessage("{\"ok\":true}");
           return;
-        case "drag": {
-          float dy = (float) p.optDouble("dy", 0);
-          if (!dragging) {
-            dragging = true;
-            dragBaseY = params.y;
-            dragStartScreenY = 0;
-          }
-          if (params == null || root == null || wm == null) return;
-          int y = Math.max(0, dragBaseY + (int) dy);
-          params.y = y;
-          try {
-            wm.updateViewLayout(root, params);
-          } catch (RuntimeException ignored) {
-          }
+        case "expanded":
+          expanded = p.optBoolean("value", false);
+          if (expanded) cancelHide();
+          else resetHideTimer();
+          if (container != null) container.requestLayout();
           return;
-        }
-        case "dragEnd": {
-          dragging = false;
-          if (root == null || params == null) return;
-          root.getContext()
-              .getSharedPreferences("deepseekharness", Context.MODE_PRIVATE)
-              .edit()
-              .putInt(K_Y, params.y)
-              .apply();
+        case "resize":
+          if (container != null && wm != null && params != null) {
+            container.requestLayout();
+            try {
+              wm.updateViewLayout(container, params);
+            } catch (RuntimeException ignored) {
+            }
+          }
+          resetHideTimer();
           return;
-        }
+        case "activity":
+          resetHideTimer();
+          return;
         case "confirm": {
-          Callback h = handler;
-          if (h != null) h.onConfirm(p.optBoolean("allow", false));
+          Callback cb = callback;
+          if (cb != null) cb.onConfirm(p.optBoolean("allow", false));
+          return;
+        }
+        case "open": {
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null) {
+            android.content.Intent intent =
+                ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            if (intent != null) {
+              intent.addFlags(
+                  android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                      | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+              try {
+                ctx.startActivity(intent);
+              } catch (RuntimeException ignored) {
+              }
+            }
+          }
+          dismiss();
           return;
         }
         case "dismiss": {
           dismiss();
-          Callback h = handler;
-          if (h != null) h.onDismiss();
+          Callback cb = callback;
+          if (cb != null) cb.onDismiss();
           return;
         }
         default:
@@ -199,10 +268,52 @@ public final class FloatWindow {
     }
   }
 
+  private static void pushPayload() {
+    if (web == null) return;
+    web.evaluateJavascript(
+        "window.dshFloat&&window.dshFloat.onData(" + JSONObject.quote(withChrome()) + ")", null);
+  }
+
+  /** 宿主配置（半透明度）合进载荷，页面只负责显示。 */
+  private static String withChrome() {
+    try {
+      JSONObject payload = new JSONObject(pendingPayload.isEmpty() ? "{}" : pendingPayload);
+      Context ctx = web == null ? null : web.getContext();
+      if (ctx != null) {
+        int alpha = Math.max(20, Math.min(100, prefs(ctx).getInt("floatwin_alpha", 60)));
+        payload.put("alpha", alpha);
+      }
+      return payload.toString();
+    } catch (Exception ignored) {
+      return pendingPayload;
+    }
+  }
+
+  private static void resetHideTimer() {
+    cancelHide();
+    if (expanded || web == null) return;
+    int hold = Math.max(2, Math.min(60, prefs(web.getContext()).getInt("overlay_hold_sec", 6)));
+    hideTask =
+        () -> {
+          if (!expanded) dismiss();
+        };
+    main.postDelayed(hideTask, hold * 1000L);
+  }
+
+  private static void cancelHide() {
+    if (hideTask != null) {
+      main.removeCallbacks(hideTask);
+      hideTask = null;
+    }
+  }
+
   private static void dismiss() {
-    if (root != null && wm != null) {
+    cancelHide();
+    expanded = false;
+    dragging = false;
+    if (container != null && wm != null) {
       try {
-        wm.removeViewImmediate(root);
+        wm.removeViewImmediate(container);
       } catch (Throwable ignored) {
       }
     }
@@ -212,11 +323,18 @@ public final class FloatWindow {
       } catch (Throwable ignored) {
       }
     }
+    container = null;
     web = null;
-    root = null;
     wm = null;
     params = null;
-    dragging = false;
+  }
+
+  private static int dp(Context ctx, int v) {
+    return Math.round(v * ctx.getResources().getDisplayMetrics().density);
+  }
+
+  private static SharedPreferences prefs(Context context) {
+    return context.getSharedPreferences("deepseekharness", Context.MODE_PRIVATE);
   }
 
   private static String readAsset(Context context, String path) {
@@ -227,7 +345,7 @@ public final class FloatWindow {
       while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
       return new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
     } catch (java.io.IOException error) {
-      return "<html><body style='color:#fff;background:#111'>floatwin missing</body></html>";
+      return "<html><body style='color:#fff'>floatwin missing</body></html>";
     }
   }
 }

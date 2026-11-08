@@ -6,7 +6,8 @@
 <title>RCHA</title>
 <style>
   :root {
-    --bg: rgba(17, 20, 26, .94);
+    --bg-rgb: 17, 20, 26;
+    --alpha: .6;
     --fg: #f2f4f8;
     --muted: rgba(242, 244, 248, .55);
     --line: rgba(255, 255, 255, .09);
@@ -23,83 +24,95 @@
     -webkit-tap-highlight-color: transparent;
   }
   #card {
-    background: var(--bg);
+    background: rgba(var(--bg-rgb), var(--alpha));
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 9px 12px 10px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .38);
+    border-radius: 0;
+    padding: 0 12px 8px;
     overflow: hidden;
-    transition: padding .18s ease;
   }
-  #head {
-    display: flex; align-items: flex-start; gap: 8px;
-    touch-action: none;
-  }
-  #dot {
-    width: 6px; height: 6px; border-radius: 3px; margin-top: 7px;
-    background: var(--accent);
-    box-shadow: 0 0 8px var(--accent);
-    flex: 0 0 auto;
-  }
-  #main { flex: 1 1 auto; min-width: 0; }
-  #titleRow { display: flex; align-items: center; gap: 6px; }
+  /* 顶部 76px 是原生拖动带：只显示，不接收点击 */
+  #head { height: 76px; padding-top: 7px; overflow: hidden; }
+  #titleRow { display: flex; align-items: center; gap: 6px; height: 15px; }
+  #dot { width: 6px; height: 6px; background: var(--accent); flex: 0 0 auto; }
   #title {
-    font-size: 11px; color: var(--muted); letter-spacing: .2px;
+    font-size: 11px; color: var(--muted); flex: 0 0 auto; max-width: 60%;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   #count {
-    font-size: 10px; color: var(--muted);
-    background: rgba(255,255,255,.07);
-    border-radius: 6px; padding: 1px 5px; flex: 0 0 auto;
+    font-size: 10px; color: var(--muted); background: rgba(255,255,255,.07);
+    padding: 0 5px; flex: 0 0 auto;
   }
   #status {
-    font-size: 13.5px; line-height: 1.45; color: var(--fg);
-    margin-top: 1px;
+    margin-top: 3px;
+    font-size: 14px; line-height: 19px; color: var(--fg);
+    white-space: normal; word-break: break-word;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* 多任务标签：可横向滚动，左右切换 */
+  #tabs {
+    display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    padding: 2px 0 6px; scrollbar-width: none;
+  }
+  #tabs::-webkit-scrollbar { display: none; }
+  #tabs[hidden] { display: none; }
+  .tab {
+    flex: 0 0 auto; max-width: 132px;
+    font-size: 11px; line-height: 18px; color: var(--muted);
+    background: rgba(255,255,255,.06);
+    border: 1px solid transparent;
+    padding: 2px 9px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .tab.active { color: var(--fg); border-color: rgba(122,162,255,.55); background: rgba(122,162,255,.14); }
+  #scroll {
+    max-height: 0; overflow: hidden;
+    transition: max-height .18s ease;
+  }
+  #card.expanded #scroll {
+    max-height: 268px; overflow-y: auto; overscroll-behavior: contain;
+    margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--line);
+  }
+  /* 内容区滚动条：细、始终可见 */
+  #scroll::-webkit-scrollbar { width: 4px; }
+  #scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); }
+  #scroll::-webkit-scrollbar-track { background: transparent; }
+  #full {
+    font-size: 12.5px; line-height: 18px; color: var(--fg);
+    white-space: pre-wrap; word-break: break-word;
+    margin-bottom: 6px;
+  }
+  #full[hidden] { display: none; }
   #detail {
-    font-size: 11.5px; color: var(--muted); margin-top: 1px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 11.5px; color: var(--muted); line-height: 16px;
+    white-space: pre-wrap; word-break: break-word; margin-bottom: 4px;
   }
   #detail[hidden] { display: none; }
-  #chevron {
-    flex: 0 0 auto; width: 22px; height: 22px; margin-top: 2px;
-    border: none; background: transparent; color: var(--muted);
-    font-size: 11px; line-height: 1; border-radius: 7px;
-    transition: transform .18s ease;
-  }
-  #chevron.open { transform: rotate(180deg); }
-  #close {
-    flex: 0 0 auto; width: 20px; height: 20px; margin-top: 2px;
-    border: none; background: transparent; color: var(--muted);
-    font-size: 14px; line-height: 1; padding: 0;
-  }
-  #body {
-    max-height: 0; overflow: hidden;
-    transition: max-height .2s ease, margin-top .2s ease;
-  }
-  #body.open { max-height: 220px; margin-top: 8px; }
-  #steps { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow-y: auto; }
+  #steps { list-style: none; margin: 0; padding: 0 0 0 2px; }
   #steps li {
-    font-size: 11.5px; color: var(--muted); line-height: 1.45;
-    padding: 3px 0 3px 12px; position: relative;
-    word-break: break-word;
+    font-size: 11.5px; color: var(--muted); line-height: 1.5;
+    padding: 2px 0 2px 10px; position: relative; word-break: break-word;
   }
   #steps li::before {
-    content: ""; position: absolute; left: 2px; top: 10px;
-    width: 4px; height: 4px; border-radius: 2px; background: var(--line);
+    content: ""; position: absolute; left: 0; top: 9px;
+    width: 3px; height: 3px; background: var(--line);
   }
   #steps li:last-child { color: var(--fg); }
+  #foot {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 14px; margin-top: 6px; color: var(--muted);
+  }
+  #foot button {
+    border: none; background: transparent; color: var(--muted);
+    font-size: 12px; padding: 2px; line-height: 1;
+  }
   #actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
   #actions[hidden] { display: none; }
   #hint {
     flex: 1 1 auto; font-size: 11px; color: #ffcf7a; align-self: center;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  button.act {
-    border: none; border-radius: 9px; padding: 5px 12px;
-    font-size: 12px; font-weight: 600; color: #fff; flex: 0 0 auto;
-  }
+  button.act { border: none; padding: 5px 12px; font-size: 12px; font-weight: 600; color: #fff; }
   #deny { background: rgba(255, 107, 94, .18); color: var(--danger); }
   #allow { background: var(--ok); }
 </style>
@@ -107,25 +120,28 @@
 <body>
 <div id="card">
   <div id="head">
-    <span id="dot"></span>
-    <div id="main">
-      <div id="titleRow">
-        <span id="title">RCHA</span>
-        <span id="count" hidden></span>
-      </div>
-      <div id="status">就绪</div>
-      <div id="detail" hidden></div>
+    <div id="titleRow">
+      <span id="dot"></span>
+      <span id="title">RCHA</span>
+      <span id="count" hidden></span>
     </div>
-    <button id="chevron" aria-label="展开">▾</button>
-    <button id="close" aria-label="收起">×</button>
+    <div id="status">就绪</div>
   </div>
-  <div id="body">
+  <div id="tabs" hidden></div>
+  <div id="scroll">
+    <div id="full" hidden></div>
+    <div id="detail" hidden></div>
     <ul id="steps"></ul>
   </div>
   <div id="actions" hidden>
     <span id="hint"></span>
     <button class="act" id="deny">拒绝</button>
     <button class="act" id="allow">允许</button>
+  </div>
+  <div id="foot">
+    <button id="open">打开</button>
+    <button id="chevron">展开 ▾</button>
+    <button id="close">收起</button>
   </div>
 </div>
 <script>
@@ -135,13 +151,29 @@
   };
   const el = id => document.getElementById(id);
   let expanded = false;
-  let latest = {};
+  let state = { tasks: [], active: '' };
+  let tabSignature = '';
+
+  function activeTask() {
+    if (!state.tasks.length) return null;
+    return state.tasks.find(t => t.id === state.active) || state.tasks[0];
+  }
 
   function applyExpand() {
-    el('body').classList.toggle('open', expanded);
-    el('chevron').classList.toggle('open', expanded);
-    el('chevron').setAttribute('aria-label', expanded ? '收起' : '展开');
+    el('card').classList.toggle('expanded', expanded);
+    el('chevron').textContent = expanded ? '收起 ▴' : '展开 ▾';
+    post('expanded', { value: expanded });
+    post('resize', {});
   }
+
+  window.dshFloat = {
+    toggle: function () { expanded = !expanded; applyExpand(); post('activity', {}); },
+    onData: function (json) {
+      let d = json;
+      if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }
+      render(d || {});
+    }
+  };
 
   let frame = 0, next = null;
   function render(data) {
@@ -149,74 +181,91 @@
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      const d = next || {};
-      latest = d;
-      el('title').textContent = d.title || 'RCHA';
-      const count = Number(d.count || 0);
+      const v = next || {};
+      if (typeof v.alpha === 'number') {
+        document.documentElement.style.setProperty('--alpha', String(Math.max(0.2, Math.min(1, v.alpha / 100))));
+      }
+
+      // 兼容旧载荷：没有 tasks 时把顶层字段当成单任务。
+      if (!Array.isArray(v.tasks) || !v.tasks.length) {
+        v.tasks = [{
+          id: 'default', title: v.title || '',
+          status: v.status || '就绪', detail: v.detail || '',
+          steps: Array.isArray(v.steps) ? v.steps : [],
+        }];
+        v.active = 'default';
+      }
+      state = { tasks: v.tasks.slice(0, 8), active: v.active || v.tasks[0].id };
+
+      const task = activeTask();
+      if (!task) return;
+      el('title').textContent = task.title || 'RCHA';
+      const count = state.tasks.length;
       if (count > 1) { el('count').textContent = count + ' 个任务'; el('count').hidden = false; }
       else el('count').hidden = true;
-      el('status').textContent = d.status || '就绪';
-      if (d.detail) { el('detail').textContent = d.detail; el('detail').hidden = false; }
+      el('status').textContent = task.status || '就绪';
+
+      // 标签：只有多任务时出现，按 id 集合判断是否需要重建。
+      const signature = state.tasks.map(t => t.id).join('|') + '#' + state.active;
+      if (signature !== tabSignature) {
+        tabSignature = signature;
+        const tabs = el('tabs');
+        tabs.textContent = '';
+        tabs.hidden = count <= 1;
+        for (const t of state.tasks) {
+          const b = document.createElement('button');
+          b.className = 'tab' + (t.id === state.active ? ' active' : '');
+          b.textContent = t.title || t.id.slice(-4);
+          b.addEventListener('click', e => {
+            e.stopPropagation();
+            state.active = t.id;
+            tabSignature = '';
+            render(state);
+            post('activity', {});
+          });
+          tabs.appendChild(b);
+        }
+        const selected = tabs.querySelector('.tab.active');
+        if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      } else {
+        const tabs = el('tabs');
+        for (const b of tabs.children) {
+          const match = state.tasks.find(t => t.id === state.active);
+          b.classList.toggle('active', match && b.textContent === (match.title || match.id.slice(-4)));
+        }
+      }
+
+      // 展开区：完整文本 + 细节 + 步骤，统一放在可滚动容器里。
+      el('full').textContent = task.status || '';
+      el('full').hidden = !expanded || !task.status;
+      if (task.detail) { el('detail').textContent = task.detail; el('detail').hidden = false; }
       else el('detail').hidden = true;
 
-      const steps = Array.isArray(d.steps) ? d.steps.slice(-12) : [];
       const list = el('steps');
       list.textContent = '';
-      for (const step of steps) {
+      for (const step of (task.steps || []).slice(-16)) {
         const li = document.createElement('li');
         li.textContent = String(step);
         list.appendChild(li);
       }
-      if (steps.length) list.lastChild.scrollIntoView({ block: 'nearest' });
 
-      const confirm = d.confirm;
+      const confirm = v.confirm;
       if (confirm && confirm.hint) {
         el('hint').textContent = confirm.hint;
         el('actions').hidden = false;
       } else el('actions').hidden = true;
 
-      if (typeof d.expanded === 'boolean' && d.expanded !== expanded) {
-        expanded = d.expanded;
-        applyExpand();
-      }
+      post('resize', {});
     });
   }
 
-  window.dshFloat = {
-    onData: function (json) {
-      let data = json;
-      if (typeof json === 'string') { try { data = JSON.parse(json); } catch (_) { return; } }
-      render(data || {});
-    }
-  };
-
-  // 标题区：轻点展开/收起，拖动移动窗口（超过 5px 判定为拖动，不触发展开）。
-  let dragging = false, moved = false, startY = 0;
-  const head = el('head');
-  head.addEventListener('pointerdown', e => {
-    if (e.target.closest('button')) return;
-    dragging = true; moved = false; startY = e.screenY;
-    head.setPointerCapture(e.pointerId);
+  el('chevron').addEventListener('click', e => {
+    e.stopPropagation(); expanded = !expanded; applyExpand(); post('activity', {});
   });
-  head.addEventListener('pointermove', e => {
-    if (!dragging) return;
-    const dy = e.screenY - startY;
-    if (!moved && Math.abs(dy) > 5) moved = true;
-    if (moved) post('drag', { dy });
-  });
-  const endDrag = () => {
-    if (!dragging) return;
-    dragging = false;
-    if (moved) post('dragEnd', {});
-    else { expanded = !expanded; applyExpand(); }
-  };
-  head.addEventListener('pointerup', endDrag);
-  head.addEventListener('pointercancel', endDrag);
-
-  el('chevron').addEventListener('click', e => { e.stopPropagation(); expanded = !expanded; applyExpand(); });
+  el('open').addEventListener('click', e => { e.stopPropagation(); post('open', {}); });
   el('close').addEventListener('click', e => { e.stopPropagation(); post('dismiss', {}); });
-  el('allow').addEventListener('click', () => post('confirm', { allow: true }));
-  el('deny').addEventListener('click', () => post('confirm', { allow: false }));
+  el('allow').addEventListener('click', () => { post('activity', {}); post('confirm', { allow: true }); });
+  el('deny').addEventListener('click', () => { post('activity', {}); post('confirm', { allow: false }); });
 
   post('ready', {});
 })();

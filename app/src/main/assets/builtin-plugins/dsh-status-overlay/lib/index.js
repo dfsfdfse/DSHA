@@ -218,12 +218,26 @@ function scheduleFloat(key, b) {
 async function sendFloat(key, b) {
   const tok = bridgeToken()
   if (!tok) return
+  // 汇总所有在跑的会话，一次发给悬浮窗；页面用标签切换查看。
+  const tasks = []
+  for (const [k, s] of state) {
+    if (!s || (!s.status && !(s.steps || []).length)) continue
+    tasks.push({
+      id: k,
+      title: titles.get(k) || '',
+      status: s.status || '',
+      detail: s.detail || '',
+      steps: (s.steps || []).slice(-16),
+      updated: s.updated || 0,
+      done: !!s.done,
+    })
+  }
+  tasks.sort((left, right) => right.updated - left.updated)
   const payload = JSON.stringify({
-    title: titles.get(key) || '',
-    status: b.status || '',
-    detail: b.detail || '',
-    steps: b.steps.slice(-6),
-    count: 1,
+    title: tasks.length ? tasks[0].title : '',
+    tasks: tasks.slice(0, 6),
+    active: key,
+    count: tasks.length,
   })
   try {
     await fetch(`${FLOAT}?json=${encodeURIComponent(payload)}`, {
@@ -315,6 +329,7 @@ export function apply(ctx) {
           b.line = tail(b.line + piece)
           // 不把原始 token 送到悬浮窗：只表达「正在生成」。
           b.status = '正在生成回复…'
+          b.updated = Date.now()
           b.detail = ''
           scheduleFloat(key, b)
         }
@@ -335,6 +350,7 @@ export function apply(ctx) {
           b.timer = undefined
         }
         b.status = label
+        b.updated = Date.now()
         b.detail = detail || ''
         pushStep(b, b.line)
         scheduleFloat(key, b)
@@ -345,6 +361,8 @@ export function apply(ctx) {
         const b = bucket(key)
         b.line = ''
         b.think = ''
+        b.done = false
+        b.updated = Date.now()
         return
       }
 
@@ -355,10 +373,11 @@ export function apply(ctx) {
           b.timer = undefined
         }
         // 留着最后一句让它自然淡出（App 侧几秒后自己收起来）
-        b.status = (b.line || '').replace(/\s+/g, ' ').trim().slice(0, 90) || '本轮完成'
+        b.status = (b.line || '').replace(/\s+/g, ' ').trim().slice(0, 240) || '本轮完成'
+        b.updated = Date.now()
         b.detail = ''
+        b.done = true
         scheduleFloat(key, b)
-        state.delete(key)
       }
     } catch {
       // 事件回调里抛异常会影响 agent 主链路，一律吞掉
