@@ -160,13 +160,38 @@ public final class FloatWebWindow {
     }
   }
 
+  private android.content.SharedPreferences prefs() {
+    return app.getSharedPreferences("deepseekharness", Context.MODE_PRIVATE);
+  }
+
+  /** 关窗/松手时把位置尺寸按 id 记下来，下次同 id 打开还原。 */
+  private void saveGeometry() {
+    try {
+      prefs()
+          .edit()
+          .putInt("fw_" + id + "_x", params.x)
+          .putInt("fw_" + id + "_y", params.y)
+          .putInt("fw_" + id + "_w", params.width)
+          .putInt("fw_" + id + "_h", params.height)
+          .apply();
+    } catch (Throwable ignored) {
+    }
+  }
+
   private void apply(int x, int y, int w, int h, int alpha) {
     int screenW = app.getResources().getDisplayMetrics().widthPixels;
     int screenH = app.getResources().getDisplayMetrics().heightPixels;
-    if (w > 0) params.width = Math.max(dp(MIN_W_DP), Math.min(screenW, w));
-    if (h > 0) params.height = Math.max(dp(MIN_H_DP), Math.min(screenH, h));
-    params.x = clamp(x < 0 ? params.x : x, 0, Math.max(0, screenW - params.width));
-    params.y = clamp(y < 0 ? params.y : y, 0, Math.max(0, screenH - params.height));
+    android.content.SharedPreferences p = prefs();
+    if (w > 0) params.width = w;
+    else params.width = Math.max(dp(MIN_W_DP), Math.min(screenW, p.getInt("fw_" + id + "_w", params.width)));
+    if (h > 0) params.height = h;
+    else params.height = Math.max(dp(MIN_H_DP), Math.min(screenH, p.getInt("fw_" + id + "_h", params.height)));
+    params.width = Math.max(dp(MIN_W_DP), Math.min(screenW, params.width));
+    params.height = Math.max(dp(MIN_H_DP), Math.min(screenH, params.height));
+    int px = x < 0 ? p.getInt("fw_" + id + "_x", params.x) : x;
+    int py = y < 0 ? p.getInt("fw_" + id + "_y", params.y) : y;
+    params.x = clamp(px, 0, Math.max(0, screenW - params.width));
+    params.y = clamp(py, 0, Math.max(0, screenH - params.height));
     float a = Math.max(0.2f, Math.min(1f, (alpha <= 0 ? 100 : alpha) / 100f));
     root.setAlpha(a);
   }
@@ -234,6 +259,7 @@ public final class FloatWebWindow {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
               moving = false;
+              if (dragMoved) saveGeometry();
               return true;
             default:
               return true;
@@ -345,6 +371,10 @@ public final class FloatWebWindow {
               }
               return true;
             }
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+              saveGeometry();
+              return true;
             default:
               return true;
           }
