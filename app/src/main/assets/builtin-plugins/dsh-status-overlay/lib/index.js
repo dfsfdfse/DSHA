@@ -376,8 +376,24 @@ let defaultModelApi
 let queryApi
 /** 全部会话（含没有消息的）：页面靠它列出所有对话。 */
 let threadList = []
+/** 刚从悬浮窗删掉的会话：内存里的 agent 还挂着，刷新列表时要把它们滤掉，别又冒出来。 */
+const goneIds = new Set()
 /** 最近一次见到的会话工作目录，新建会话时沿用。 */
 let lastCwdPath = ''
+
+/**
+ * 这个会话此刻是不是真的在跑一轮。
+ * agents.get() 只要进程里还有活着的 agent 就返回（这就是「用悬浮窗聊过就删不掉」的原因），
+ * dsh 自己的 AgentStatus 只有 idle / running，判断「进行中」必须看 status。
+ */
+function sessionRunning(id) {
+  try {
+    const agent = agentsApi && typeof agentsApi.get === 'function' ? agentsApi.get(String(id || '')) : undefined
+    return String(agent?.status || '') === 'running'
+  } catch {
+    return false
+  }
+}
 
 function newSessionId() {
   try {
@@ -402,14 +418,18 @@ async function refreshThreads() {
     const ids = []
     for (const record of records) {
       const id = String(record?.header?.id || '')
-      if (!id || ids.includes(id)) continue
+      if (!id || ids.includes(id) || goneIds.has(id)) continue
       const cwd = String(record?.header?.cwd || '')
       if (cwd) lastCwdPath = cwd
       ids.push(id)
+      // record.live 只表示「这个会话在内存里挂着」（聊过一次就一直挂着），不是「正在跑」；
+      // 页面上的「进行中」和删除保护都要按 agent.status 判断。
+      const running = sessionRunning(id)
       rows.push({
         id,
         cwd,
-        live: !!record.live,
+        live: running,
+        running,
         updated: Number(record?.header?.updatedAt || record?.header?.createdAt) || 0,
         title: '',
       })
@@ -866,15 +886,33 @@ async function sessionAdmin(args) {
     if (args?.confirm !== true) {
       return { ok: false, count: 0, text: `要删除会话 ${wanted} 需要把 confirm 设为 true；删除会移进回收站，可人工恢复` }
     }
-    if (agentsApi && agentsApi.get && agentsApi.get(wanted)) {
-      return { ok: false, count: 0, text: '这个会话正在运行，先停止再删' }
+    // 只有真的在跑一轮才拦：agents.get() 有 agent 不等于在跑（聊过一次就一直挂在内存里），
+    // 以前按它判断，导致悬浮窗里聊过的会话全删不掉。
+    if (sessionRunning(wanted)) {
+      const running = agentsApi && typeof agentsApi.get === 'function' ? agentsApi.get(wanted) : undefined
+      try { running?.cancel?.({ kind: 'user' }) } catch { /* 取消失败就等下面的复查报错 */ }
+      for (let i = 0; i < 60 && sessionRunning(wanted); i++) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      if (sessionRunning(wanted)) {
+        return { ok: false, count: 0, text: '这个会话还在跑一轮（可能卡在工具里），先点停止再删' }
+      }
     }
     const dir = sessionDirOf(wanted)
-    if (!dir) return { ok: false, count: 0, text: `找不到会话 ${wanted} 的存储目录` }
+    if (!dir) {
+      // 还没落过盘的空会话（新建后没发过话）：没有文件可移，直接从列表和本地状态里摘掉
+      goneIds.add(wanted)
+      threadList = threadList.filter(r => r.id !== wanted)
+      try { state.delete(String(wanted).slice(-8)) } catch { }
+      publishFloat('')
+      return { ok: true, count: 0, text: '已删除会话（这个会话还没落盘，没有文件需要回收）' }
+    }
     try {
       mkdirSync(SESSION_TRASH, { recursive: true })
       const dest = join(SESSION_TRASH, `${Date.now()}-session-${wanted}`)
       renameSync(dir, dest)
+      // 目录没了但 agent 还在内存里挂着，下次刷新会把它列回来：记下来滤掉
+      goneIds.add(wanted)
       threadList = threadList.filter(r => r.id !== wanted)
       try { state.delete(String(wanted).slice(-8)) } catch { }
       publishFloat('')
@@ -1016,7 +1054,7 @@ function registerSessionSkill(ctx) {
         '## 三、硬规则',
         '',
         '1. id 只从 `list` 结果或工具返回里取，不要编；`list` 里显示的是 uuid 尾号，取尾部也能用。',
-        '2. 删除必须先复述对象、等用户明确同意；一次只删一个；正在运行的会话不删。',
+        '2. 删除必须先复述对象、等用户明确同意；一次只删一个；正在跑一轮的会话 delete 会先把它停掉再删，不用让用户先去点停止。',
         '3. 用户只是在正常聊天（「帮我写个函数」「这个 bug 怎么修」）时，不要调用这些动作。',
         '4. 转写明显残缺（比如只剩「那个」）时，先 `list` 再问一句「你说的是不是 X」，不要瞎猜着开或删。',
         '5. 做完用一句口语中文回报，例如「打开了「修 git push 失败」那个会话」；不要贴 JSON、不要贴 uuid。',

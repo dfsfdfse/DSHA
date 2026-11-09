@@ -2987,6 +2987,11 @@
       renderSheet();
       post('deleteSession', { session: id });
       showNotice('正在删除会话…', 3000, true);
+      // 删掉的正好是正在看的这个：别把它钉在界面上等 6 秒宽限，直接换成新会话草稿
+      if (id === selectedId || id === currentId()) {
+        closeSheet();
+        selectTab('new');
+      }
       return;
     }
     closeSheet();
