@@ -1337,6 +1337,9 @@ function bucket(key) {
 /** 合并窗口内只保留最后一次内容，窗口结束时发一次。
  *  getter 而不是直接传字符串：窗口这 120ms 里还会继续追加，要发的是**那一刻**的最新值。 */
 function schedule(key, kind, getter) {
+  // 悬浮条那边「显示思考」关着（App 回 SKIP_REASONING）就只是不发这条 HTTP；
+  // 悬浮窗自己的思考照常累积——两件事别互相牵连，否则思考会在第一小段之后停住。
+  if (kind === 'reasoning' && Date.now() < skipReasoningUntil) return
   const b = bucket(key)
   if (b.timer) {
     b.pending = true
@@ -1441,7 +1444,6 @@ export function apply(ctx) {
         const isText = chunk?.type === 'text-delta'
         const isThink = chunk?.type === 'reasoning-delta'
         if (!isText && !isThink) return
-        if (isThink && Date.now() < skipReasoningUntil) return   // App 侧刚说过不看这个
         const piece = chunk.text
         if (!piece) return
         const b = bucket(key)

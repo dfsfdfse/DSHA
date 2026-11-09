@@ -927,6 +927,12 @@
     -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent 100%);
     mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent 100%);
   }
+  /* 直播中的思考：收起时钉在最新两行（像字幕，能看见它在长），收尾后回到开头两行 */
+  #think-row.live:not(.open) .clip {
+    display: block; max-height: 36px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 12px);
+  }
   #think-row.open .clip {
     display: block; white-space: pre-wrap; overflow-wrap: anywhere;
     max-height: 46vh; overflow-y: auto;
@@ -2211,10 +2217,17 @@
     const txt = row.querySelector('.txt');
     txt.textContent = open ? String(think.text) : String(think.text).trim();
     clip.classList.remove('over');
-    // 超过两行才淡出提示可展开
-    if (!open) clip.classList.toggle('over', txt.scrollHeight > clip.clientHeight + 1);
-    else if (first) clip.scrollTop = think.live ? clip.scrollHeight : 0;
-    else if (stick && think.live) clip.scrollTop = clip.scrollHeight;
+    if (open) {
+      if (first) clip.scrollTop = think.live ? clip.scrollHeight : 0;
+      else if (stick && think.live) clip.scrollTop = clip.scrollHeight;
+    } else if (think.live) {
+      // 收起 + 还在思考：钉在最新两行，否则长思考看着像「卡住不动」
+      clip.scrollTop = clip.scrollHeight;
+    } else {
+      clip.scrollTop = 0;
+      // 超过两行才淡出提示可展开
+      clip.classList.toggle('over', txt.scrollHeight > clip.clientHeight + 1);
+    }
   }
 
   // ── 流式打字：数据一帧帧到（约 0.1 秒一批），这里按字逐步揭示，不是整段跳出 ──
