@@ -220,6 +220,8 @@ public final class FloatWindow {
   private static View btnMenu;
   private static View btnOpen;
   private static View btnClose;
+  /** 页面面板打开时临时收起原生窗口按钮。 */
+  private static boolean chromeHidden;
   private static View dragStrip;
   private static View bottomEdge;
   private static View cornerHandle;
@@ -536,6 +538,7 @@ public final class FloatWindow {
   }
 
   private static boolean create(Context app, boolean loadCustomPage) {
+    chromeHidden = false;
     wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
     if (wm == null) return false;
     appCtx = app;
@@ -1519,7 +1522,7 @@ public final class FloatWindow {
     int slot = 0;
     for (int i = 0; i < order.length; i++) {
       View b = order[i];
-      b.setVisibility(visible[i] ? View.VISIBLE : View.GONE);
+      b.setVisibility(!chromeHidden && visible[i] ? View.VISIBLE : View.GONE);
       if (!visible[i]) continue;
       FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) b.getLayoutParams();
       lp.rightMargin = dp(app, SHADOW_DP + 6 + 28 * slot);
@@ -1527,6 +1530,7 @@ public final class FloatWindow {
       slot++;
     }
     if (dragStrip != null) {
+      dragStrip.setVisibility(chromeHidden ? View.GONE : View.VISIBLE);
       FrameLayout.LayoutParams sp = (FrameLayout.LayoutParams) dragStrip.getLayoutParams();
       sp.rightMargin = dp(app, SHADOW_DP + 10 + 28 * slot);
       // 自绘页（1、2 档）顶行 28：左边是会话标签，拖动区从标签右边开始（页面报 dragzone）；
@@ -1780,6 +1784,12 @@ public final class FloatWindow {
                 p.optString("image", ""),
                 p.optString("file", ""),
                 false);
+          return;
+        }
+        case "chrome": {
+          // 页面开自己的面板时把原生窗口按钮收起来，免得盖住面板的关闭按钮
+          chromeHidden = p.optBoolean("hidden", false);
+          applyTierChrome();
           return;
         }
         case "deleteSession": {
@@ -2544,6 +2554,7 @@ public final class FloatWindow {
   }
 
   private static void dismiss() {
+    chromeHidden = false;
     if (pendingBlur != null) {
       main.removeCallbacks(pendingBlur);
       pendingBlur = null;
