@@ -374,6 +374,8 @@ let goalsApi
 let permissionApi
 let defaultModelApi
 let queryApi
+/** dsh 的工作区登记：会话「归档」（Web 侧的唯一删除语义）和已归档集合都在这。 */
+let workspaceRegistryApi
 /** 全部会话（含没有消息的）：页面靠它列出所有对话。 */
 let threadList = []
 /** 刚从悬浮窗删掉的会话：内存里的 agent 还挂着，刷新列表时要把它们滤掉，别又冒出来。 */
@@ -416,9 +418,16 @@ async function refreshThreads() {
     const records = await queryApi.listSessions()
     const rows = []
     const ids = []
+    // dsh 里归档掉的会话就是「用户已经删掉的」：悬浮窗列表跟着一起藏，
+    // 不然在 dsh 里删完，这边还留着一条点不开的。
+    const archived = new Set()
+    try {
+      const set = workspaceRegistryApi?.archivedSessionIds
+      if (Array.isArray(set)) for (const value of set) archived.add(String(value))
+    } catch { /* 拿不到归档集合就只按本地记录判断 */ }
     for (const record of records) {
       const id = String(record?.header?.id || '')
-      if (!id || ids.includes(id) || goneIds.has(id)) continue
+      if (!id || ids.includes(id) || goneIds.has(id) || archived.has(id)) continue
       const cwd = String(record?.header?.cwd || '')
       if (cwd) lastCwdPath = cwd
       ids.push(id)
@@ -658,7 +667,10 @@ async function sessionRows() {
 
 /** 会话 id → 磁盘上的会话目录（可能不存在）。 */
 function sessionDirOf(id) {
-  const target = 'session-' + String(id || '')
+  // 调用方传的是完整 id（session-<uuid>），也可能只给 uuid 尾巴：两种都得认，
+  // 否则会拼成 session-session-xxx，永远找不到目录——删除就变成「只从列表里掉下去」。
+  const raw = String(id || '')
+  const target = raw.startsWith('session-') ? raw : 'session-' + raw
   try {
     for (const name of readdirSync(SESSIONS_ROOT)) {
       const dir = join(SESSIONS_ROOT, name, target)
@@ -899,24 +911,54 @@ async function sessionAdmin(args) {
       }
     }
     const dir = sessionDirOf(wanted)
+    // dsh 自己没有「删会话」，官方语义是归档：归档后 Web 的会话列表、搜索都不再列它。
+    // 只在悬浮窗里删掉、dsh 那边还在，用户看到的就是「删了个寂寞」。
+    let archived = false
+    try {
+      if (workspaceRegistryApi && typeof workspaceRegistryApi.archiveSession === 'function') {
+        await workspaceRegistryApi.archiveSession(wanted, { stopActivity: true })
+        archived = true
+      }
+    } catch (error) {
+      // 查不到这个会话（空壳）或归档已经写不进去：别把文件删了却让它留在 dsh 列表里，
+      // 如实报错让用户知道这次没删干净
+      return {
+        ok: false,
+        count: 0,
+        text: '删除失败：dsh 那边没能归档这个会话（' + String(error?.message || error).slice(0, 80) + '）',
+      }
+    }
     if (!dir) {
       // 还没落过盘的空会话（新建后没发过话）：没有文件可移，直接从列表和本地状态里摘掉
       goneIds.add(wanted)
       threadList = threadList.filter(r => r.id !== wanted)
       try { state.delete(String(wanted).slice(-8)) } catch { }
       publishFloat('')
-      return { ok: true, count: 0, text: '已删除会话（这个会话还没落盘，没有文件需要回收）' }
+      return {
+        ok: true,
+        count: 0,
+        text: '已删除会话（空会话还没落盘，没有文件需要回收）'
+          + (archived ? '；dsh 里已归档，列表不再显示' : ''),
+      }
     }
     try {
       mkdirSync(SESSION_TRASH, { recursive: true })
-      const dest = join(SESSION_TRASH, `${Date.now()}-session-${wanted}`)
+      // wanted 是完整 id（session-<uuid>）：别再拼一次 session-，回收站里会变成 session-session-xxx
+      const bare = String(wanted).replace(/^session-/, '')
+      const dest = join(SESSION_TRASH, `${Date.now()}-session-${bare}`)
       renameSync(dir, dest)
       // 目录没了但 agent 还在内存里挂着，下次刷新会把它列回来：记下来滤掉
       goneIds.add(wanted)
       threadList = threadList.filter(r => r.id !== wanted)
       try { state.delete(String(wanted).slice(-8)) } catch { }
       publishFloat('')
-      return { ok: true, count: 1, text: `已删除会话（${String(wanted).slice(-8)}），已放进回收站 ${SESSION_TRASH}，需要的话可以恢复` }
+      return {
+        ok: true,
+        count: 1,
+        text: `已删除会话（${String(wanted).slice(-8)}）：`
+          + (archived ? 'dsh 里已归档、列表不再显示，' : '')
+          + '文件已移进回收站',
+      }
     } catch (error) {
       return { ok: false, count: 0, text: '删除失败：' + String(error?.message || error).slice(0, 120) }
     }
@@ -949,7 +991,7 @@ function registerSessionTool(ctx) {
         'open：在悬浮窗里打开指定会话，用户说「打开某某会话」时用这个；',
         'new：新建会话；带 message 时会新建并直接把这句发进新会话（「新建会话问一下 X」）；',
         'send：在指定会话里发一条消息（「找到 X 那个会话，问它 Y」），session 填 id/标题片段/「最近」，message 填要问的话；',
-        'delete：删除会话（必须 confirm:true，会先移进回收站，不是不可恢复）。',
+        'delete：删除会话（必须 confirm:true；dsh 里归档、悬浮窗列表一起移除，会话文件移进回收站）。',
         '调用前先用 list 拿到准确的 id，不要臆造。',
       ].join(' '),
       parameters: {
@@ -1420,6 +1462,11 @@ export function apply(ctx) {
     defaultModelApi = scoped.agentDefaultModel
     return () => { defaultModelApi = undefined }
   })
+  // 会话「删除」在 dsh 里只有归档一种官方语义：归档后 Web 的列表也不再显示它
+  safely('workspace-registry', () => ctx.inject(['workspaceRegistry'], scoped => {
+    workspaceRegistryApi = scoped.workspaceRegistry
+    return () => { workspaceRegistryApi = undefined }
+  }))
   const onEvent = (session, event) => {
     try {
       if (!bridgeToken()) return
