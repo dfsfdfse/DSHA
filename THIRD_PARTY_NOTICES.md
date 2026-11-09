@@ -9,6 +9,7 @@
 - pnpm **10.34.5**（MIT）和 certifi **2026.7.22**（MPL-2.0）：版本和原包摘要由 `tools/runtime-tools.lock.json` 固定。CA 未关闭 TLS 核验。
 - 许可目录和实际依赖需结合归档成员检查；锁文件内其他平台可选依赖不等于已进入 arm64 APK。
 - core-js **3.50.0**（MIT），原包来源 `https://registry.npmjs.org/core-js/-/core-js-3.50.0.tgz`，全文为 `assets/web-integration/core-js.LICENSE`。
+- KaTeX **0.16.22**（MIT），原包来源 `https://registry.npmjs.org/katex/-/katex-0.16.22.tgz`，供悬浮窗自绘页离线排版公式：JS/CSS 由宿主读页面时内联注入，20 个 woff2 字体以 data URL 内联进 CSS（不发网络请求）。产物摘要与构建输入见 `app/src/main/assets/floatwin/katex/katex.inputs.json`，全文为 `app/src/main/assets/floatwin/katex/LICENSE`。
 - sharp **0.35.5** 为 Apache-2.0；arm64 libvips 包 **1.3.4** 声明 LGPL-3.0-or-later，来源为锁内 npm 原包和 https://github.com/lovell/sharp-libvips 。包内 README 含嵌入依赖及源码获取说明，应结合实际二进制核对；不把单一 libvips 许可扩展到所有嵌入库。
 - `@ubjs/core` / `@ubjs/node` **0.31.0-3** 为 MPL-2.0，来源 https://github.com/jhugman/uniffi-bindgen-react-native ；`@trycua/cua-driver` **0.28.0** 包装层为 MIT，而 Linux arm64 原生包为 **MIT AND MPL-2.0**，来源 https://github.com/trycua/cua 。原生包声明与包装层分开核对。
 - MPL-2.0、LGPL-3.0 与 GPL-3.0 全文随 `assets/licenses` 提供；文本精确来源与摘要记录在 `docs/audits/build156/third-party-license-sources.json`。通用许可全文不能证明二进制原件的来源或分发权利。

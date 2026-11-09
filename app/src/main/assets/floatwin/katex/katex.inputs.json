@@ -1,0 +1,19 @@
+{
+  "package": "katex@0.16.22",
+  "license": "MIT",
+  "fontFormat": "woff2",
+  "fontCount": 20,
+  "js": {
+    "bytes": 276701,
+    "sha256": "e8d885505949f3a5f4abdd5dd0d53696bd1371ad26ffbf4f310dcd77c8cdae89"
+  },
+  "css": {
+    "bytes": 367453,
+    "sha256": "c87d2b61698d44a07331ee70f61e01ec7afa1c102903403c03f1f7d44fa4f746"
+  },
+  "inputs": {
+    "tools/prepare-floatwin-katex.mjs": "d2609bf94829e63e303fa49ab9bc8329620e6954e9da2e16c1cd74e4583f0c1c",
+    "tools/floatwin-katex/package.json": "86cb10f810f2b0f601cb90343f251c4d1ae89af6bb01be3eb0b00d37663cf2f7",
+    "tools/floatwin-katex/package-lock.json": "ab81d3764c8e5cc6a0ba6c3bffe5b7f91a57ead0ecc5fd3cefa8a0e73d999007"
+  }
+}

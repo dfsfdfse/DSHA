@@ -733,8 +733,7 @@ public final class FloatWindow {
     params = lp;
     applyTierChrome();
     if (loadCustomPage) {
-      view.loadDataWithBaseURL(
-          BASE_URL, readAsset(app, "floatwin/index.html"), "text/html", "utf-8", null);
+      view.loadDataWithBaseURL(BASE_URL, customPageHtml(app), "text/html", "utf-8", null);
     }
     return true;
   }
@@ -2617,6 +2616,27 @@ public final class FloatWindow {
 
   private static SharedPreferences prefs(Context context) {
     return context.getSharedPreferences("deepseekharness", Context.MODE_PRIVATE);
+  }
+
+  /**
+   * 自绘页 + 公式渲染器。
+   *
+   * <p>页面来自 assets，窗口不允许 file:// 访问、也没有网络，所以 KaTeX 的 JS/CSS
+   * （字体已内联成 data URL）在加载时直接塞进 HTML，页面里用 {@code <!--KATEX-->} 占位。
+   * 资产缺失时占位替换成空串，页面照常工作，公式退化成原文。
+   */
+  private static String customPageHtml(Context app) {
+    String html = readAsset(app, "floatwin/index.html");
+    String block = "";
+    try {
+      String css = readAsset(app, "floatwin/katex/katex.inline.css");
+      String js = readAsset(app, "floatwin/katex/katex.min.js");
+      if (!css.startsWith("<html") && !js.startsWith("<html")) {
+        block = "<style>" + css + "</style><script>" + js + "</script>";
+      }
+    } catch (Throwable ignored) {
+    }
+    return html.replace("<!--KATEX-->", block);
   }
 
   private static String readAsset(Context context, String path) {

@@ -1,0 +1,9 @@
+{
+  "name": "dsha-floatwin-katex-build",
+  "private": true,
+  "version": "1.0.0",
+  "description": "悬浮窗离线公式渲染：把 KaTeX 发行文件复制进 APK 资产（离线可用，不发网络请求）",
+  "dependencies": {
+    "katex": "0.16.22"
+  }
+}

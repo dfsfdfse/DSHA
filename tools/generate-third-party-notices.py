@@ -49,6 +49,9 @@ def render():
     wasm = packages['node_modules/@deepseek-ai/libreoffice-kit-wasm']['version']
     web = json.loads((ROOT / 'tools/web-compat/package-lock.json').read_text(encoding='utf-8'))
     corejs = web['packages']['node_modules/core-js']
+    katex_lock = json.loads((ROOT / 'tools/floatwin-katex/package-lock.json').read_text(encoding='utf-8'))
+    katex = katex_lock['packages']['node_modules/katex']
+    katex_assets = json.loads((ASSETS / 'floatwin/katex/katex.inputs.json').read_text(encoding='utf-8'))
     restricted = '\n'.join(f'| `{path}` | {row["version"]} | {row.get("license", "unknown")} | {row.get("resolved", "unknown")} |'
                            for path, row in sorted(packages.items()) if path and row.get('license', 'unknown') not in PERMISSIVE)
     android = '\n'.join('- `' + coordinate + '`' for coordinate in gradle_coordinates())
@@ -67,6 +70,7 @@ def render():
 - pnpm **{tools['pnpm']['version']}**（MIT）和 certifi **{tools['certifi']['version']}**（MPL-2.0）：版本和原包摘要由 `tools/runtime-tools.lock.json` 固定。CA 未关闭 TLS 核验。
 - 许可目录和实际依赖需结合归档成员检查；锁文件内其他平台可选依赖不等于已进入 arm64 APK。
 - core-js **{corejs['version']}**（{corejs['license']}），原包来源 `{corejs['resolved']}`，全文为 `assets/web-integration/core-js.LICENSE`。
+- KaTeX **{katex['version']}**（{katex['license']}），原包来源 `{katex['resolved']}`，供悬浮窗自绘页离线排版公式：JS/CSS 由宿主读页面时内联注入，20 个 woff2 字体以 data URL 内联进 CSS（不发网络请求）。产物摘要与构建输入见 `app/src/main/assets/floatwin/katex/katex.inputs.json`，全文为 `app/src/main/assets/floatwin/katex/LICENSE`。
 - sharp **{packages['node_modules/sharp']['version']}** 为 Apache-2.0；arm64 libvips 包 **{packages['node_modules/@img/sharp-libvips-linux-arm64']['version']}** 声明 LGPL-3.0-or-later，来源为锁内 npm 原包和 https://github.com/lovell/sharp-libvips 。包内 README 含嵌入依赖及源码获取说明，应结合实际二进制核对；不把单一 libvips 许可扩展到所有嵌入库。
 - `@ubjs/core` / `@ubjs/node` **{packages['node_modules/@ubjs/core']['version']}** 为 MPL-2.0，来源 https://github.com/jhugman/uniffi-bindgen-react-native ；`@trycua/cua-driver` **{packages['node_modules/@trycua/cua-driver']['version']}** 包装层为 MIT，而 Linux arm64 原生包为 **{packages['node_modules/@trycua/cua-driver-linux-arm64-gnu']['license']}**，来源 https://github.com/trycua/cua 。原生包声明与包装层分开核对。
 - MPL-2.0、LGPL-3.0 与 GPL-3.0 全文随 `assets/licenses` 提供；文本精确来源与摘要记录在 `docs/audits/build156/third-party-license-sources.json`。通用许可全文不能证明二进制原件的来源或分发权利。
