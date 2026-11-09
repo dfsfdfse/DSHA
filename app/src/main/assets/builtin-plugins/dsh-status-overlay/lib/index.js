@@ -916,7 +916,7 @@ async function sessionAdmin(args) {
       threadList = threadList.filter(r => r.id !== wanted)
       try { state.delete(String(wanted).slice(-8)) } catch { }
       publishFloat('')
-      return { ok: true, count: 1, text: `已删除会话 ${wanted}（已移到 ${SESSION_TRASH}，需要的话可以恢复）` }
+      return { ok: true, count: 1, text: `已删除会话（${String(wanted).slice(-8)}），已放进回收站 ${SESSION_TRASH}，需要的话可以恢复` }
     } catch (error) {
       return { ok: false, count: 0, text: '删除失败：' + String(error?.message || error).slice(0, 120) }
     }
