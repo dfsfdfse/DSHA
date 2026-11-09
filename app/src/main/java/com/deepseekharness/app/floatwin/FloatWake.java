@@ -37,6 +37,8 @@ final class FloatWake {
   /** 最近一段送检音频的长度与峰值（诊断用）。 */
   private static volatile long segMs;
   private static volatile double segLevelLast;
+  /** 收段门限（诊断用）。 */
+  private static volatile double lastEndGate;
   private static final int RATE = 16000;
   private static final Handler main = new Handler(Looper.getMainLooper());
 
@@ -106,6 +108,7 @@ final class FloatWake {
   }
 
   private static synchronized void closeRecorder() {
+    releaseEffects();
     android.media.AudioRecord rec = recorder;
     recorder = null;
     if (rec == null) return;
@@ -119,55 +122,122 @@ final class FloatWake {
     }
   }
 
-  private static synchronized android.media.AudioRecord openRecorder() {
+  /** 系统降噪 / 自动增益：嘈杂环境里把说话声从背景里拔出来，交给后续 VAD 和 ASR。 */
+  private static android.media.audiofx.NoiseSuppressor suppressor;
+  private static android.media.audiofx.AutomaticGainControl gainControl;
+
+  private static synchronized void releaseEffects() {
     try {
-      int min =
-          android.media.AudioRecord.getMinBufferSize(
-              RATE,
-              android.media.AudioFormat.CHANNEL_IN_MONO,
-              android.media.AudioFormat.ENCODING_PCM_16BIT);
-      android.media.AudioRecord rec =
-          new android.media.AudioRecord(
-              android.media.MediaRecorder.AudioSource.MIC,
-              RATE,
-              android.media.AudioFormat.CHANNEL_IN_MONO,
-              android.media.AudioFormat.ENCODING_PCM_16BIT,
-              Math.max(min, RATE));
-      if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
-        rec.release();
-        lastErr = "AudioRecord 未初始化（麦克风被占用？）";
-        return null;
-      }
-      rec.startRecording();
-      recorder = rec;
-      return rec;
-    } catch (Throwable error) {
-      lastErr = "打开麦克风失败：" + error;
-      return null;
+      if (suppressor != null) suppressor.release();
+    } catch (Throwable ignored) {
     }
+    try {
+      if (gainControl != null) gainControl.release();
+    } catch (Throwable ignored) {
+    }
+    suppressor = null;
+    gainControl = null;
+  }
+
+  private static void attachEffects(android.media.AudioRecord rec) {
+    try {
+      int session = rec.getAudioSessionId();
+      if (session == android.media.audiofx.AudioEffect.ERROR) return;
+      try {
+        if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+          suppressor = android.media.audiofx.NoiseSuppressor.create(session);
+          if (suppressor != null) suppressor.setEnabled(true);
+        }
+      } catch (Throwable ignored) {
+      }
+      try {
+        if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
+          gainControl = android.media.audiofx.AutomaticGainControl.create(session);
+          if (gainControl != null) gainControl.setEnabled(true);
+        }
+      } catch (Throwable ignored) {
+      }
+    } catch (Throwable ignored) {
+    }
+  }
+
+  /**
+   * 开麦克风：优先用 {@code VOICE_RECOGNITION}（系统会按“给识别用”处理，通常带降噪），
+   * 失败再退回 {@code MIC}。两条路都试着挂上 NoiseSuppressor / AGC。
+   */
+  private static synchronized android.media.AudioRecord openRecorder() {
+    int[] sources =
+        new int[] {
+          android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+          android.media.MediaRecorder.AudioSource.MIC
+        };
+    for (int source : sources) {
+      try {
+        int min =
+            android.media.AudioRecord.getMinBufferSize(
+                RATE,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT);
+        android.media.AudioRecord rec =
+            new android.media.AudioRecord(
+                source,
+                RATE,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT,
+                Math.max(min, RATE));
+        if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
+          rec.release();
+          lastErr = "AudioRecord 未初始化（麦克风被占用？）";
+          continue;
+        }
+        try {
+          rec.startRecording();
+        } catch (Throwable error) {
+          rec.release();
+          lastErr = "启动录音失败：" + error;
+          continue;
+        }
+        attachEffects(rec);
+        recorder = rec;
+        return rec;
+      } catch (Throwable error) {
+        lastErr = "打开麦克风失败：" + error;
+      }
+    }
+    return null;
   }
 
   private static void loop(Context app, long gen) {
     final int frameBytes = RATE * 2 * 30 / 1000; // 30ms
     final int preRollFrames = 12; // 360ms
-    final int endSilenceFrames = 26; // ~780ms：留够尾音，别把话说一半就切
+    final int endSilenceFrames = 18; // ~540ms：尾音留够，又别在嘈杂里一直不切
+    final int quietFrames = 33; // ~1s 都没超过「起段门限」也收尾：噪声忽高忽低时兜底
     final int minFrames = 20; // 整段至少 600ms
     final int minLoudFrames = 8; // 其中至少 240ms 是实音，否则多半是碰麦/噪音
     final int maxFrames = 270; // ~8s：一口气说完「唤醒词+指令」也能整段收进去
+    final int floorWindow = 66; // ~2s 的 RMS 历史，噪声地板取它的中位数
+    final long minSendGap = 900; // 两次送检至少隔这么久，别在嘈杂里把 ASR 排满
     byte[] frame = new byte[frameBytes];
     java.util.ArrayDeque<byte[]> preRoll = new java.util.ArrayDeque<>();
+    final double[] history = new double[floorWindow];
+    int historyLen = 0;
+    int historyAt = 0;
     java.io.ByteArrayOutputStream seg = null;
     int segFrames = 0;
     int segLoud = 0;
     double segPeak = 0;
     int silent = 0;
+    int sinceLoud = 0;
     int loudRun = 0;
     double noise = -1;
     long busyUntil = 0;
+    long lastSentAt = 0;
     long lastStatus = 0;
     double peakRms = 0;
     long zeroFrames = 0;
     long frames = 0;
+    double startGate = 420;
+    double endGate = 260;
     while (running && generation == gen) {
       if (paused) {
         if (System.currentTimeMillis() - lastStatus >= 2000) {
@@ -208,27 +278,39 @@ final class FloatWake {
         sum += (long) v * v;
       }
       double rms = Math.sqrt((double) sum / Math.max(1, read / 2));
-      if (noise < 0 || noise < 1) noise = Math.max(rms, 1);
-      double gate = Math.max(260, noise * 2.5);
-      boolean loud = rms > gate;
+      // 噪声地板：只有不在段内时才更新，否则说话声会把地板顶上去。
+      // 用中位数而不是加权平均——电视、风扇这种忽大忽小的背景，中位数更接近真实底噪。
+      if (seg == null) {
+        history[historyAt] = rms;
+        historyAt = (historyAt + 1) % floorWindow;
+        if (historyLen < floorWindow) historyLen++;
+        noise = Math.max(80, medianOf(history, historyLen));
+      } else if (noise < 0) {
+        noise = Math.max(rms, 80);
+      }
+      // 迟滞双门限：起段要求比底噪高 35%，收段只要回到 8% 以上。
+      // 以前是 noise*2.5，人声在嘈杂环境里根本够不着（实测底噪 3952 → 门限 9881，峰值才 7481）。
+      startGate = Math.max(420, noise * 1.35);
+      endGate = Math.max(260, noise * 1.08);
+      lastEndGate = endGate;
+      boolean loud = rms > startGate;
       frames++;
       if (sum == 0) zeroFrames++;
       if (rms > peakRms) peakRms = rms;
       long now = System.currentTimeMillis();
       if (now - lastStatus >= 2000) {
         lastStatus = now;
-        writeStatus(app, peakRms, noise, gate, frames, zeroFrames, seg != null);
+        writeStatus(app, peakRms, noise, startGate, frames, zeroFrames, seg != null);
         peakRms = 0;
         frames = 0;
         zeroFrames = 0;
       }
-      if (!loud && seg == null) noise = noise * 0.97 + rms * 0.03;
       byte[] copy = java.util.Arrays.copyOf(frame, read);
       if (seg == null) {
         preRoll.addLast(copy);
         while (preRoll.size() > preRollFrames) preRoll.removeFirst();
         loudRun = loud ? loudRun + 1 : 0;
-        if (loudRun >= 2 && System.currentTimeMillis() >= busyUntil) {
+        if (loudRun >= 2 && now >= busyUntil) {
           seg = new java.io.ByteArrayOutputStream();
           for (byte[] b : preRoll) seg.write(b, 0, b.length);
           segFrames = preRoll.size();
@@ -236,15 +318,24 @@ final class FloatWake {
           segPeak = rms;
           preRoll.clear();
           silent = 0;
+          sinceLoud = 0;
         }
         continue;
       }
       seg.write(copy, 0, copy.length);
       segFrames++;
-      if (loud) segLoud++;
+      if (loud) {
+        segLoud++;
+        sinceLoud = 0;
+      } else {
+        sinceLoud++;
+      }
       if (rms > segPeak) segPeak = rms;
-      silent = loud ? 0 : silent + 1;
-      if (silent >= endSilenceFrames || segFrames >= maxFrames) {
+      // 收段门限跟这一段自己的峰值挂钩：嘈杂环境里底噪本身就贴着门限，
+      // 只按绝对门限的话「安静」永远不成立，段落会一路拖到 8 秒上限。
+      double quietBelow = Math.max(endGate, segPeak * 0.6);
+      silent = rms <= quietBelow ? silent + 1 : 0;
+      if (silent >= endSilenceFrames || sinceLoud >= quietFrames || segFrames >= maxFrames) {
         byte[] pcm = seg.toByteArray();
         int speechFrames = segFrames - silent;
         int loudFrames = segLoud;
@@ -255,8 +346,11 @@ final class FloatWake {
         segLoud = 0;
         segPeak = 0;
         segs++;
-        if (speechFrames >= minFrames && loudFrames >= minLoudFrames) {
+        if (speechFrames >= minFrames
+            && loudFrames >= minLoudFrames
+            && System.currentTimeMillis() - lastSentAt >= minSendGap) {
           sent++;
+          lastSentAt = System.currentTimeMillis();
           // 转写期间不再切新段，避免把 SenseVoice 排满
           busyUntil = System.currentTimeMillis() + 60_000;
           String text = transcribe(app, pcm, gen);
@@ -269,6 +363,15 @@ final class FloatWake {
       }
     }
     closeRecorder();
+  }
+
+  /** 最近窗口的中位数：对突发噪声不敏感，比加权平均稳。 */
+  private static double medianOf(double[] values, int len) {
+    if (len <= 0) return 0;
+    double[] copy = new double[len];
+    System.arraycopy(values, 0, copy, 0, len);
+    java.util.Arrays.sort(copy);
+    return copy[(len - 1) / 2];
   }
 
   /** 交给插件转写，最多等 10 秒。 */
@@ -319,6 +422,9 @@ final class FloatWake {
               .put("peak", Math.round(peak))
               .put("noise", Math.round(noise))
               .put("gate", Math.round(gate))
+              .put("endGate", Math.round(lastEndGate))
+              .put("noiseSuppressor", suppressor != null)
+              .put("autoGain", gainControl != null)
               .put("frames", frames)
               .put("zeroFrames", zero)
               .put("inSeg", inSeg)
@@ -347,7 +453,10 @@ final class FloatWake {
     main.post(() -> FloatWindow.onWake(app, cmd));
   }
 
-  /** 唤醒词别名：英文字母常被识别成同音汉字。 */
+  /**
+   * 唤醒词别名：英文字母常被识别成同音汉字（cc → 西西/希希…），
+   * 短的「c」只补拉丁写法——单字中文同音字（西/希）在正常对话里到处都是，会误唤醒。
+   */
   static List<String> aliases(String words) {
     List<String> out = new ArrayList<>();
     for (String raw : words.split("[,，|;；/\\n]+")) {
@@ -358,21 +467,48 @@ final class FloatWake {
         for (String alt : new String[] {"西西", "希希", "茜茜", "cici", "嘻嘻", "惜惜", "c c", "sisi", "溪溪"}) {
           out.add(w.replace("cc", norm(alt)));
         }
+      } else if (w.contains("c")) {
+        // 用户就配了「呼叫c」这种情况下，尽量认这些写法；不加单字中文，避免误唤醒
+        for (String alt : new String[] {"cc", "see", "cici", "sisi", "cee"}) {
+          out.add(w.replace("c", norm(alt)));
+        }
       }
     }
+    // 长的优先：「呼叫cc」要先于「cc」匹配，否则会从中间切开，后面的指令只剩一半
+    out.sort((a, b) -> b.length() - a.length());
     return out;
   }
 
   /**
+   * 「呼叫cc」常被识别成只剩「cc」：这种人只在**句首**认，别在句子中间乱触发。
+   * 太短的（单字母）不放进来，否则谁提到这个字母都会被唤醒。
+   */
+  static List<String> heads(String words) {
+    List<String> out = new ArrayList<>();
+    for (String w : aliases(words)) {
+      String tail = w.replaceFirst("^(呼叫|呼|叫)", "");
+      if (tail.length() >= 2 && !tail.equals(w) && !out.contains(tail)) out.add(tail);
+    }
+    out.sort((a, b) -> b.length() - a.length());
+    return out;
+  }
+
+  /** 全角字母数字转半角：识别结果里混进全角是常事。 */
+  private static char half(char c) {
+    if (c >= '\uFF01' && c <= '\uFF5E') return (char) (c - 0xFEE0);
+    return c;
+  }
+
+  /**
    * 文本里含唤醒词就返回唤醒词后面的话（可能为空串）；不含返回 null。
-   * 比较时忽略大小写、空格和标点。
+   * 比较时忽略大小写、空格、全角半角和标点。
    */
   static String match(String text, String words) {
     if (text == null) return null;
     StringBuilder normalized = new StringBuilder();
     List<Integer> map = new ArrayList<>();
     for (int i = 0; i < text.length(); i++) {
-      char c = text.charAt(i);
+      char c = half(text.charAt(i));
       if (Character.isLetterOrDigit(c)) {
         normalized.append(Character.toLowerCase(c));
         map.add(i);
@@ -382,17 +518,27 @@ final class FloatWake {
     for (String w : aliases(words)) {
       int at = n.indexOf(w);
       if (at < 0) continue;
-      int end = at + w.length();
-      if (end >= map.size()) return "";
-      String rest = text.substring(map.get(end)).trim();
-      return rest.replaceFirst("^[\\p{Punct}，。、！？：；\\s]+", "").trim();
+      return restAfter(text, map, at + w.length());
+    }
+    // 句首只说出「cc」、没识别出「呼叫」的也算
+    for (String w : heads(words)) {
+      if (!n.startsWith(w)) continue;
+      return restAfter(text, map, w.length());
     }
     return null;
+  }
+
+  /** 唤醒词之后的指令：跳过紧跟的标点空格。 */
+  private static String restAfter(String text, List<Integer> map, int end) {
+    if (end >= map.size()) return "";
+    String rest = text.substring(map.get(end)).trim();
+    return rest.replaceFirst("^[\\p{Punct}，。、！？：；\\s]+", "").trim();
   }
 
   private static String norm(String s) {
     StringBuilder b = new StringBuilder();
     for (char c : s.toCharArray()) {
+      c = half(c);
       if (Character.isLetterOrDigit(c)) b.append(Character.toLowerCase(c));
     }
     return b.toString().toLowerCase(Locale.ROOT);
