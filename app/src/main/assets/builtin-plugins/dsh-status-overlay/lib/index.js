@@ -262,6 +262,19 @@ function scheduleFloat(key, b) {
   if (typeof b.ftimer?.unref === 'function') b.ftimer.unref()
 }
 
+/** 会话标题：优先用本进程收到的 title 事件，没有就从会话清单里补。
+ *  重启之后老会话不会再发 title 事件，只靠本地缓存的话列表会显示成「会话 xxxx」。 */
+function taskTitle(key) {
+  const local = titles.get(key)
+  if (local) return local
+  try {
+    const row = threadList.find(r => String(r.id).slice(-8) === String(key))
+    return row && row.title ? row.title : ''
+  } catch {
+    return ''
+  }
+}
+
 async function sendFloat(key, b) {
   const tok = bridgeToken()
   if (!tok) return
@@ -272,7 +285,7 @@ async function sendFloat(key, b) {
     const usage = usageOf(s.session)
     tasks.push({
       id: fullIdOf(k) || k,
-      title: titles.get(k) || '',
+      title: taskTitle(k),
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,
@@ -458,7 +471,12 @@ async function refreshThreads() {
             ? snapshot
             : String(snapshot?.title || '')
           const title = text.trim()
-          if (title) rows[i].title = title.slice(0, 40)
+          if (!title) return
+          rows[i].title = title.slice(0, 40)
+          // 顺便补上本地标题缓存：重启后老会话不会再发 session/title 事件，
+          // 缓存空着的话悬浮窗任务列表就显示成「会话 xxxx」。
+          const key = String(id).slice(-8)
+          if (!titles.get(key)) titles.set(key, title.slice(0, 24))
         })
       } catch { /* 标题拿不到就只显示目录 */ }
     }
@@ -1222,7 +1240,7 @@ function publishFloat(activeKey) {
     const usage = usageOf(s.session)
     tasks.push({
       id: fullIdOf(k) || k,
-      title: titles.get(k) || '',
+      title: taskTitle(k),
       messages: (s.messages || []).slice(-20),
       updated: s.updated || 0,
       done: !!s.done,

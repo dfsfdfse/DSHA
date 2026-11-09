@@ -2005,10 +2005,13 @@
     const q = (el('fwsheet-q').value || '').trim().toLowerCase();
     const rows = [];
     const seen = new Set();
+    // 任务行可能还没有标题（重启后老会话不会再发 title 事件）：用会话清单里的标题兜底，
+    // 否则删掉一个会话后，旁边本来有名字的会显示成「会话 xxxx」。
+    const named = new Map((state.threads || []).filter(t => t && t.title).map(t => [t.id, t.title]));
     for (const t of state.tasks || []) {
       if (seen.has(t.id)) continue;
       seen.add(t.id);
-      rows.push({ id: t.id, title: t.title || '', updated: t.updated || 0, live: !t.done });
+      rows.push({ id: t.id, title: t.title || named.get(t.id) || '', updated: t.updated || 0, live: !t.done });
     }
     for (const t of state.threads || []) {
       if (seen.has(t.id)) continue;
