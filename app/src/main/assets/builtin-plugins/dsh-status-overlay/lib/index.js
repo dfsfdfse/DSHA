@@ -441,6 +441,8 @@ async function refreshThreads() {
     for (const record of records) {
       const id = String(record?.header?.id || '')
       if (!id || ids.includes(id) || goneIds.has(id) || archived.has(id)) continue
+      // 子代理会话只在它父会话的步骤里出现，不该单独占一行（dsh 的 Web 侧也这么过滤）
+      if (String(record?.header?.origin || '') === 'subagent') continue
       const cwd = String(record?.header?.cwd || '')
       if (cwd) lastCwdPath = cwd
       ids.push(id)
@@ -1546,10 +1548,12 @@ export function apply(ctx) {
 
       if (type === 'session/title') {
         const title = String(data?.title || '').replace(/\s+/g, ' ').trim()
-        if (title) titles.set(key, title.slice(0, 24))
+        // 子代理（depth>0）的标题不能盖住主会话：它的桶是并进父会话的，
+        // 一覆盖，悬浮窗里父会话就变成「帮你跑子任务的那句提示词」了。
+        if (title && !depth) titles.set(key, title.slice(0, 24))
         return
       }
-      if (!titles.get(key)) {
+      if (!depth && !titles.get(key)) {
         const known = titleOf(key, session)
         if (known) titles.set(key, known)
       }
