@@ -768,7 +768,7 @@ function resolveSession(wanted, rows) {
 }
 
 /** 会话管理：语音说「删掉最近的会话」「打开昨天那个」「新建会话」都走这里。 */
-const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'send', 'delete']
+const SESSION_ACTIONS = ['list', 'read', 'open', 'new', 'send', 'rewind', 'delete']
 
 async function sessionAdmin(args) {
   const action = String(args?.action || '')
@@ -898,6 +898,52 @@ async function sessionAdmin(args) {
         + (shown ? '，悬浮窗已切过去。' : '（悬浮窗没能切过去，可在会话列表里打开）。'),
     }
   }
+  if (action === 'rewind') {
+    // 回退：dsh 没有「原地截断会话」这种操作，官方语义是从某条事件 fork 出一个新会话。
+    // 新会话到那条消息（含）为止，原会话原样保留，随时能切回去。
+    if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id、标题片段或「最近」）' }
+    if (!queryApi) return { ok: false, count: 0, text: '会话查询服务不可用' }
+    const rows = await sessionRows()
+    const id = resolveSession(wanted, rows)
+    if (!id) return { ok: false, count: 0, text: `没找到对应「${wanted}」的会话，先 list 看一下` }
+    if (!sessionControllerApi || typeof sessionControllerApi.fork !== 'function') {
+      return { ok: false, count: 0, text: '当前 dsh 不支持会话分支（fork），没法回退' }
+    }
+    const snippet = String(args?.message || args?.text || '').trim()
+    let at = Math.max(0, Number(args?.seq) || 0)
+    const loaded = await queryApi.readSession(id)
+    const events = Array.isArray(loaded?.events) ? loaded.events : []
+    if (!at) {
+      if (!snippet) return { ok: false, count: 0, text: '要回退到哪一条？给 message（那句原话的片段）或 seq' }
+      for (let i = events.length - 1; i >= 0; i--) {
+        const event = events[i]
+        if (!event || event.type !== 'user/message') continue
+        const content = event.data?.message?.content || event.data?.content
+        const text = Array.isArray(content)
+          ? content.filter(p => p && p.type === 'text').map(p => p.text).join(' ').trim()
+          : ''
+        if (text && text.includes(snippet)) { at = Number(event.seq) || 0; break }
+      }
+      if (!at) return { ok: false, count: 0, text: `这个会话里没找到含「${snippet}」的用户消息` }
+    }
+    let created
+    try {
+      created = await sessionControllerApi.fork({ sessionId: id, atSeq: at })
+    } catch (error) {
+      return { ok: false, count: 0, text: '回退失败：' + String(error?.message || error).slice(0, 120) }
+    }
+    const child = String(created?.sessionId || '')
+    if (!child) return { ok: false, count: 0, text: '回退失败：dsh 没有返回新会话' }
+    await refreshThreads()
+    const shown = await openInApp(child)
+    const tail = String(child).slice(-8)
+    return {
+      ok: true,
+      count: 1,
+      text: `已回退到那条消息：新会话 ${tail} 从那里接着聊（原会话保留）`
+        + (shown ? '，悬浮窗已切过去。' : '（悬浮窗没切过去，可在会话列表里打开）。'),
+    }
+  }
   if (action === 'delete') {
     if (!wanted) return { ok: false, count: 0, text: '需要 session（会话 id）；可以先用 list 查' }
     {
@@ -1009,6 +1055,8 @@ function registerSessionTool(ctx) {
         'open：在悬浮窗里打开指定会话，用户说「打开某某会话」时用这个；',
         'new：新建会话；带 message 时会新建并直接把这句发进新会话（「新建会话问一下 X」）；',
         'send：在指定会话里发一条消息（「找到 X 那个会话，问它 Y」），session 填 id/标题片段/「最近」，message 填要问的话；',
+        'rewind：把会话回退到某条消息——用户说「回退到我说 xxx 那句话」时用；必须给 message（那句原话的片段）或 seq（事件序号）。'
+        + 'dsh 没有原地截断，回退会从那条消息开一个新会话接着聊，原会话保留。',
         'delete：删除会话（必须 confirm:true；dsh 里归档、悬浮窗列表一起移除，会话文件移进回收站）。',
         '调用前先用 list 拿到准确的 id，不要臆造。',
       ].join(' '),
@@ -1017,11 +1065,12 @@ function registerSessionTool(ctx) {
         additionalProperties: false,
         required: ['action'],
         properties: {
-          action: { type: 'string', enum: [...SESSION_ACTIONS], description: 'list | read | open | new | send | delete' },
-          message: { type: 'string', description: 'send / new 时要发进那个会话的内容（照用户原意整理成一句完整的话）' },
+          action: { type: 'string', enum: [...SESSION_ACTIONS], description: 'list | read | open | new | send | rewind | delete' },
+          message: { type: 'string', description: 'send / new 时要发进那个会话的内容；rewind 时用来定位「回退到哪一句」（原话片段）' },
           session: { type: 'string', description: '会话 id（open/read/delete 必填）；uuid 尾部或标题片段也接受' },
           query: { type: 'string', description: 'list 时按标题或 id 前缀过滤' },
           limit: { type: 'integer', description: 'list 返回条数（默认 10）、read 返回轮数（默认 12）' },
+          seq: { type: 'integer', description: 'rewind 时直接给事件序号（比用 message 定位更精确）' },
           confirm: { type: 'boolean', description: 'delete 时必须为 true 才会真正删除' },
         },
       },
@@ -1110,6 +1159,7 @@ function registerSessionSkill(ctx) {
         '**Y 要由目标会话去回答，不要在当前会话里自己回答 Y。** send/new 成功后只用一句话告诉用户',
         '「已经在 X 会话里问了，回答会显示在悬浮窗」，然后结束本轮。',
         '- 「把最近那个删了」→ 先用 `session:"最近"` 调 `delete`，工具会回一条「指向哪个会话」，把标题和时间复述给用户，得到确认后再带完整 id 和 `confirm:true` 调一次。',
+        '- 「回退到我说 xxx 那一句」「把会话倒回刚才那条」→ `{action:"rewind", session:"最近", message:"xxx"}`；dsh 从那条消息开一个新会话接着聊，原会话保留。',
         '',
         '## 三、硬规则',
         '',
