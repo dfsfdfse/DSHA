@@ -1768,6 +1768,13 @@ public final class FloatWindow {
           pickFile();
           return;
         }
+        case "answerAsk": {
+          // 悬浮窗提问卡点的选项：value 里是 {callId, answers} 的 JSON
+          Context ctx = web == null ? null : web.getContext();
+          if (ctx != null)
+            writeWant(ctx, "answer", p.optString("session", ""), p.optString("value", ""));
+          return;
+        }
         case "send": {
           Context ctx = web == null ? null : web.getContext();
           if (ctx != null) {

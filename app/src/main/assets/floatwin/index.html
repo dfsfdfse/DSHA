@@ -1053,6 +1053,33 @@
   .m-run i { flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: fw-pulse 1.2s ease-in-out infinite; }
   .m-empty { padding: 28px 0; text-align: center; font-size: 12px; color: var(--fw-sub); }
 
+  /* dsh 提问卡：ask_user_question 挂起时点选项就地回答 */
+  .m-ask {
+    margin: 6px 0; padding: 6px 8px;
+    border: 0.5px solid var(--accent); border-radius: 8px;
+    background: var(--fw-field);
+  }
+  .m-ask .a-q { font-size: 12px; line-height: 18px; color: var(--fw-text); margin-bottom: 2px; }
+  .m-ask .a-q b { font-weight: 600; }
+  .m-ask .a-h { font-size: 10px; line-height: 14px; color: var(--accent); margin-bottom: 2px; }
+  .m-ask .a-opts { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .m-ask .m-opt {
+    display: block; width: 100%; text-align: left;
+    padding: 5px 8px; border: 0.5px solid var(--fw-line); border-radius: 6px;
+    background: transparent; color: var(--fw-text);
+    font-size: 12px; line-height: 17px;
+  }
+  .m-ask .m-opt .a-lab { display: block; }
+  .m-ask .m-opt .a-desc { display: block; font-size: 11px; line-height: 15px; color: var(--fw-sub); }
+  .m-ask .m-opt:active, .m-ask .m-opt.sel { border-color: var(--accent); background: var(--fw-chip); }
+  .m-ask .m-opt.sel .a-lab { color: var(--accent); }
+  .m-ask .a-send {
+    margin-top: 6px; width: 100%; padding: 5px 8px;
+    border: 0; border-radius: 6px; background: var(--accent); color: #fff;
+    font-size: 12px; line-height: 17px;
+  }
+  .m-ask .a-done { margin-top: 4px; font-size: 11px; line-height: 16px; color: var(--fw-sub); text-align: center; }
+
   /* 输入：一行 [+] 输入框 [发送]；+ 就地展开 图片 / 文件 / 语音；有字或在跑才出右侧按钮 */
   body.fw #compose {
     flex-direction: row; align-items: center; gap: 2px;
@@ -1402,6 +1429,10 @@
   function escapeHtml(text) {
     return String(text == null ? '' : text)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  /** 属性专用：比 escapeHtml 多转义引号（选项 label 来自模型输出，得防它带 " 出逃） */
+  function escAttr(text) {
+    return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   /** 行内标记：反引号代码、粗体、斜体，外加 URL / 路径高亮。 */
@@ -1780,6 +1811,11 @@
   let newSince = null;
   const askedThread = new Set();
   const openSteps = new Set();
+  // 提问卡：answeredAsk 记录刚答过的 callId（等插件回执清掉 ask 前保持"已提交"态）；
+  // askSel 是多选/多问题时暂存的选择 qid → Set(label)
+  let answeredAsk = '';
+  const askSel = new Map();
+  let lastAskId = '';
   let tailSig = '';
   let listSig2 = '';
   let fwTimer = 0;
@@ -2317,10 +2353,17 @@
     const list = el('mlist');
     const msgs = task && Array.isArray(task.messages) ? task.messages : [];
     const sig = currentId() + '#' + msgs.map(m => (m.at || 0) + ':' + String(m.text || m.title || '').length + (m.failed ? 'f' : '')).join('|')
-      + '#' + (task && task.done ? 1 : 0) + '#' + [...openSteps].join(',') + '#' + (newSince ? 1 : 0);
+      + '#' + (task && task.done ? 1 : 0) + '#' + [...openSteps].join(',') + '#' + (newSince ? 1 : 0)
+      + '#' + (task && task.ask ? JSON.stringify(task.ask) : '') + '#' + answeredAsk + '#' + [...askSel.entries()].map(([k, v]) => k + ':' + [...v].join(',')).join(';');
     if (sig === listSig2) { paintRunning(task); return; }
     const first = !listSig2;
     listSig2 = sig;
+    // 新的一轮提问：清掉上一轮的暂存选择和"已提交"态
+    if (task && task.ask && task.ask.callId !== lastAskId) {
+      lastAskId = task.ask.callId;
+      answeredAsk = '';
+      askSel.clear();
+    }
     const stick = list.scrollTop + list.clientHeight >= list.scrollHeight - 12;
     let html = '';
     if (!msgs.length) {
@@ -2355,6 +2398,31 @@
       } else if (m.kind === 'note') {
         html += '<div class="m-note">' + escapeHtml(m.text || m.title || '') + '</div>';
       }
+    }
+    // dsh 的提问（ask_user_question）：给选项按钮，点一下就地回答
+    if (task && task.ask && task.ask.questions && task.ask.questions.length) {
+      const done = answeredAsk && task.ask.callId === answeredAsk
+      const single = !done && task.ask.questions.length === 1 && !task.ask.questions[0].m
+      const needSend = !done && !single
+      html += '<div class="m-ask">'
+      for (const q of task.ask.questions) {
+        html += (q.h ? '<div class="a-h">' + escapeHtml(q.h) + '</div>' : '')
+          + '<div class="a-q"><b>' + escapeHtml(q.q) + '</b></div>'
+          + '<div class="a-opts">'
+        const sel = askSel.get(q.id) || new Set()
+        for (const o of (q.opts || [])) {
+          html += '<button type="button" class="m-opt' + (sel.has(o.label) ? ' sel' : '') + '"'
+            + ' data-q="' + escAttr(q.id) + '" data-l="' + escAttr(o.label) + '"'
+            + (single ? '' : ' data-t="1"') + '>'
+            + '<span class="a-lab">' + escapeHtml(o.label) + '</span>'
+            + (o.desc ? '<span class="a-desc">' + escapeHtml(o.desc) + '</span>' : '')
+            + '</button>'
+        }
+        html += '</div>'
+      }
+      if (needSend) html += '<button type="button" class="a-send">提交选择</button>'
+      if (done) html += '<div class="a-done">已提交，等 dsh 继续…</div>'
+      html += '</div>'
     }
     if (task && !task.done) html += '<div class="m-run"><i></i><span id="m-run-text"></span></div>';
     list.innerHTML = html;
@@ -2972,7 +3040,46 @@
     renderThink(currentTask());
     postFit();
   });
+  // 提问卡作答：single 点选项即答；多选/多问题先勾选再"提交选择"
+  function sendAskAnswers(ask, answers) {
+    answeredAsk = ask.callId || 'sent';
+    askSel.clear();
+    post('answerAsk', {
+      session: currentId(),
+      value: JSON.stringify({ callId: ask.callId, answers }),
+    });
+    showNotice('已提交选择', 2000);
+    renderList(currentTask());
+  }
   el('mlist').addEventListener('click', e => {
+    const opt = e.target.closest && e.target.closest('.m-opt');
+    const task = currentTask();
+    const ask = task && task.ask;
+    if (opt && ask) {
+      const qid = opt.dataset.q || '';
+      const label = opt.dataset.l || '';
+      const q = (ask.questions || []).find(x => x.id === qid);
+      if (!q) return;
+      if (!q.m && ask.questions.length === 1) {
+        // 单问题单选：点了就发
+        sendAskAnswers(ask, [{ id: qid, selected: [label] }]);
+        return;
+      }
+      const sel = askSel.get(qid) || new Set();
+      if (sel.has(label)) sel.delete(label); else sel.add(label);
+      askSel.set(qid, sel);
+      renderList(task);
+      return;
+    }
+    const send = e.target.closest && e.target.closest('.a-send');
+    if (send && ask) {
+      const answers = (ask.questions || []).map(q => ({
+        id: q.id,
+        selected: [...(askSel.get(q.id) || new Set())],
+      }));
+      sendAskAnswers(ask, answers);
+      return;
+    }
     const row = e.target.closest && e.target.closest('.m-step');
     if (!row) return;
     const key = row.dataset.k;

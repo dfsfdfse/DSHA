@@ -63,6 +63,7 @@ const TIMEOUT_MS = 1500
 
 /** 工具名 → 人话。命中越具体的放前面；没命中的兜底成「正在使用 X」。 */
 const TOOL_LABELS = [
+  [/ask[_\s-]?user|user.*question|question/i, '❓ 等你选择'],
   [/bash|shell|command|exec|terminal/i, '⚙ 正在执行命令'],
   [/write|create.*file|edit|patch|apply/i, '⚙ 正在修改文件'],
   [/read|cat|view|open.*file/i, '⚙ 正在读取文件'],
@@ -126,6 +127,29 @@ function toolDetail(argsJson) {
     return ''
   } catch {
     return ''
+  }
+}
+
+/** ask_user_question 的调用参数 → 悬浮窗可渲染的提问卡。
+ *  问题/选项条数做上限：悬浮窗空间小，超出的仍可在 dsh 主界面里看。 */
+function buildAsk(data) {
+  try {
+    const args = typeof data?.arguments === 'string' ? JSON.parse(data.arguments) : data?.arguments
+    const questions = Array.isArray(args?.questions) ? args.questions : []
+    const qs = questions.slice(0, 3).map(q => ({
+      id: String(q?.id || ''),
+      q: String(q?.question || '').slice(0, 200),
+      h: String(q?.header || '').slice(0, 24),
+      m: !!q?.multi_select,
+      opts: (Array.isArray(q?.options) ? q.options : []).slice(0, 6).map(o => ({
+        label: String(o?.label || '').slice(0, 80),
+        desc: String(o?.description || '').slice(0, 120),
+      })).filter(o => o.label),
+    })).filter(q => q.id && q.q)
+    if (!qs.length) return null
+    return { callId: String(data?.callId || ''), questions: qs }
+  } catch {
+    return null
   }
 }
 
@@ -295,6 +319,7 @@ async function sendFloat(key, b) {
       goal: goalOf(s.session),
       todos: todosOf(s.session),
       commands: commandsOf(s.session),
+      ask: s.ask || null,
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -1302,6 +1327,7 @@ function publishFloat(activeKey) {
       goal: goalOf(s.session),
       todos: todosOf(s.session),
       commands: commandsOf(s.session),
+      ask: s.ask || null,
       since: s.turnStart || 0,
       stats: {
         turns: s.turns || 0,
@@ -1624,6 +1650,13 @@ export function apply(ctx) {
         const detail = toolDetail(data?.arguments)
         // 说明优先显示，命令原文留给展开看；b.line/b.detail 仍是命令原文（悬浮条批准用）
         const summary = toolSummary(data?.arguments)
+        // dsh 的提问（ask_user_question）：悬浮窗直接给选项按钮，点一下就算回答
+        const ask = String(data?.name || '') === 'ask_user_question' ? buildAsk(data) : null
+        if (ask) {
+          if (!depth) b.ask = ask
+        } else if (!depth) {
+          b.ask = null
+        }
         closeLive(b, depth)
         b.line = detail ? label + ': ' + detail : label
         b.think = ''
@@ -1656,6 +1689,16 @@ export function apply(ctx) {
             at: Date.now(),
           })
         }
+        if (ask) {
+          // 行里也带一份问题文本：不展开提问卡时至少看得见问了什么
+          const cur = b.messages[b.messages.length - 1]
+          if (cur && cur.kind === 'tool') {
+            cur.isAsk = true
+            cur.text = ask.questions[0].q
+          }
+          b.line = '❓ ' + ask.questions[0].q.replace(/\s+/g, ' ').slice(0, 60)
+          b.detail = ask.questions[0].q
+        }
         if (b.messages.length > 24) b.messages.splice(0, b.messages.length - 24)
         scheduleFloat(key, b)
         return
@@ -1677,6 +1720,8 @@ export function apply(ctx) {
         } catch { }
         row.failed = !!data?.error || (code !== null && code !== 0)
         if (code !== null) row.code = code
+        // 提问结束了（答完 / 超时 / 取消）：把提问卡收掉
+        if (row.isAsk && !depth) b.ask = null
         b.updated = Date.now()
         scheduleFloat(key, b)
         return
@@ -1685,6 +1730,7 @@ export function apply(ctx) {
       if (type === 'turn/start') {
         const b = bucket(key)
         if (!depth) b.session = session
+        if (!depth) b.ask = null
         b.line = ''
         b.think = ''
         b.thinkAcc = ''
@@ -1704,6 +1750,8 @@ export function apply(ctx) {
       if (type === 'turn/end') {
         const b = bucket(key)
         if (!depth) b.session = session
+        // 一轮结束意味着没有悬着的提问了（答完/取消都会先来 tool/result）
+        if (!depth) b.ask = null
         if (b.timer) {
           clearTimeout(b.timer)
           b.timer = undefined
@@ -1999,6 +2047,42 @@ function startInbox(ctx) {
         // 悬浮窗会话面板里的删除：页面已经点过两次确认，这里只做执行与回执
         const result = await sessionAdmin({ action: 'delete', session: String(msg.session || ''), confirm: true })
         setNotice(result.text)
+        publishFloat('')
+        return
+      }
+      if (want === 'answer') {
+        // 悬浮窗提问卡点的选项：走 dsh 的 userQuestions 服务，
+        // 回答会作为 user-question-reply 消息进入会话并结束那次 ask_user_question 调用
+        let picked = null
+        try { picked = JSON.parse(String(msg.value || '')) } catch { }
+        const callId = String(picked?.callId || '')
+        const answers = Array.isArray(picked?.answers) ? picked.answers : []
+        if (!callId || !answers.length) return
+        let target
+        try {
+          target = await ensureAgent(msg.session)
+        } catch (error) {
+          setNotice('回答失败：' + String(error?.message || error).slice(0, 60))
+          return
+        }
+        const svc = ctx.userQuestions
+        if (!target || !svc || typeof svc.answer !== 'function') {
+          setNotice('回答失败：当前环境不支持提问回答')
+          return
+        }
+        try {
+          const still = svc.answer(target, callId, { answers })
+          if (still === false) {
+            setNotice('这个问题已失效，请看最新提问')
+          } else {
+            for (const [, s] of state) {
+              if (s && s.ask && s.ask.callId === callId) s.ask = null
+            }
+            if (notice) setNotice('')
+          }
+        } catch (error) {
+          setNotice('回答失败：' + String(error?.message || error).slice(0, 70))
+        }
         publishFloat('')
         return
       }
